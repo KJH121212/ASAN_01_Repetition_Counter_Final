@@ -10,14 +10,10 @@ from pathlib import Path
 BASE_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASAN_01_Repetition_Counter_Final/")
 sys.path.append(str(BASE_DIR))
 
-try:
-    from ground_truth_pipeline.step4_assign_ids import assign_sam_ids_to_keypoints
-except ImportError:
-    try:
-        from step4_assign_ids import assign_sam_ids_to_keypoints
-    except ImportError:
-        print("❌ 함수 임포트 실패: 경로를 확인해주세요.")
-        sys.exit(1)
+from ground_truth_pipeline.step4_assign_ids import assign_sam_ids_to_keypoints
+from utils.path_list import path_list
+from utils.generate_skeleton_video_v1 import generate_sam_video, generate_17kpt_skeleton_video
+
 
 DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
 METADATA_PATH = DATA_DIR / "metadata_v2.0.csv"
@@ -53,26 +49,26 @@ for step, idx in enumerate(target_indices):
     common_path = row['common_path']
     
     # 🟢 경로 생성
-    kpt_dir_path = DATA_DIR / "2_KEYPOINTS" / common_path
-    sam_dir_path = DATA_DIR / "8_SAM" / common_path
+    paths = path_list(str(common_path))
     
     # 진행 상황 로그 출력 (flush=True로 즉시 출력 보장)
     print(f"[{step+1}/{total_targets}] Index {idx}: {common_path} ... ", end="", flush=True)
 
-    # 폴더 체크
-    if not kpt_dir_path.exists() or not sam_dir_path.exists():
-        print("⚠️ 폴더 없음 (Skip)")
-        continue
-
     try:
         # 함수 호출
         processed_count = assign_sam_ids_to_keypoints(
-            common_path=common_path, 
-            sam_dir=sam_dir_path,
-            kpt_dir=kpt_dir_path,
-            output_base_dir=None      # None이면 원본 덮어쓰기
+            sam_dir=paths['sam'],
+            kpt_dir=paths['keypoint'],
+            output_dir=None      # None이면 원본 덮어쓰기
         )
         
+        generate_17kpt_skeleton_video(
+            frame_dir=paths['frame'],       # 원본 프레임 경로
+            kpt_dir=paths['keypoint'],               # 업데이트된 JSON이 저장된 test 경로 사용!
+            output_path=paths['mp4'],       # 출력 파일 경로
+            conf_threshold=0
+        )
+
         # 결과 처리
         if processed_count > 0:
             # 성공 표시
