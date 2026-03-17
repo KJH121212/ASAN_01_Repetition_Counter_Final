@@ -525,92 +525,87 @@ def generate_counting_skeleton_video(frame_dir, kpt_dir, output_path, counter, p
 
     create_video_engine(frame_dir, output_path, kpt_dir, drawer, start_idx=start_idx, end_idx=end_idx)
 
-def generate_12kpt_skeleton_video_from_np(frame_dir, kpt_np, output_path, fps=30, conf_threshold=0.0):
+def generate_12kpt_skeleton_video_segment(
+    frame_dir, 
+    kpt_np, 
+    output_path, 
+    start_idx: int = 0, 
+    end_idx: int = -1, 
+    fps=30, 
+    conf_threshold=0.0
+):
     """
-    (N, 12, 3) 형태의 Numpy 배열을 받아 원본 이미지 프레임 위에 오버레이하여 비디오를 생성합니다.
-    
-    Args:
-        frame_dir (str/Path): 원본 이미지 프레임들이 있는 디렉토리 경로.
-        kpt_np (np.ndarray): (프레임수, 12관절, 3(x, y, score)) 형태의 Numpy 배열.
-        output_path (str/Path): 저장할 mp4 비디오 파일 경로.
-        fps (int): 비디오 프레임 레이트 (기본값 30).
-        conf_threshold (float): 이 점수 이하인 관절은 그리지 않음.
+    이미지 프레임은 start_idx부터 가져오고, 
+    Numpy 데이터(kpt_np)는 인덱스 0부터 순서대로 매칭하여 비디오를 생성합니다.
     """
-    frame_path = Path(frame_dir)
-    save_path = Path(output_path)
+    frame_path = Path(frame_dir) # 경로 처리를 위해 Path 객체 생성합니다.
+    save_path = Path(output_path) # 저장 경로 처리를 위해 Path 객체 생성합니다.
     
-    # 1. 프레임 이미지 리스트 확보
-    frame_files = sorted(list(frame_path.glob("*.jpg")) + list(frame_path.glob("*.png")))
-    if not frame_files:
-        print(f"❌ [Error] 프레임 이미지가 없습니다: {frame_dir}")
+    # 1. 원본 이미지 리스트 확보 및 슬라이싱
+    all_files = sorted(list(frame_path.glob("*.jpg")) + list(frame_path.glob("*.png"))) # 모든 이미지를 정렬하여 가져옵니다.
+    
+    if end_idx == -1: 
+        end_idx = len(all_files) - 1 # 끝 인덱스가 지정되지 않으면 마지막 파일까지로 설정합니다.
+    
+    # 지정된 구간의 이미지 파일만 추출합니다.
+    target_files = all_files[start_idx : end_idx + 1] # start_idx부터 end_idx까지 슬라이싱합니다.
+    
+    if not target_files: # 파일이 없으면 에러를 출력하고 종료합니다.
+        print(f"❌ [Error] 해당 구간({start_idx}~{end_idx})에 프레임 이미지가 없습니다.")
         return
 
-    n_frames_img = len(frame_files)
-    n_frames_np = kpt_np.shape[0]
-    
-    # 데이터 길이 불일치 방어 로직
-    target_len = min(n_frames_img, n_frames_np)
-    if n_frames_img != n_frames_np:
-        print(f"⚠️ [경고] 프레임 수({n_frames_img})와 Numpy 배열 길이({n_frames_np})가 다릅니다.")
-        print(f"   -> 최소 길이인 {target_len} 프레임까지만 생성합니다.")
+    # 2. 데이터 길이 맞춤 (Numpy는 0번부터 사용)
+    # 이미지 개수와 Numpy 배열의 전체 길이 중 작은 값만큼 처리합니다.
+    n_images = len(target_files) # 사용할 이미지의 총 개수입니다.
+    n_kpts = kpt_np.shape[0] # Numpy 배열의 총 프레임 수입니다.
+    target_len = min(n_images, n_kpts) # 두 데이터 중 짧은 쪽에 맞춰 길이를 결정합니다.
 
-    # 2. 비디오 Writer 초기화
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    first_img = cv2.imread(str(frame_files[0]))
-    h, w = first_img.shape[:2]
-    out = cv2.VideoWriter(str(save_path), cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+    # 3. 비디오 Writer 초기화
+    save_path.parent.mkdir(parents=True, exist_ok=True) # 저장할 디렉토리를 생성합니다.
+    first_img = cv2.imread(str(target_files[0])) # 비디오 크기 설정을 위해 첫 이미지를 읽습니다.
+    h, w = first_img.shape[:2] # 높이와 너비를 파악합니다.
+    out = cv2.VideoWriter(str(save_path), cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h)) # mp4 작성을 시작합니다.
 
-    print(f"🎬 12Kpt 비디오 생성 중... -> {save_path.name}")
+    print(f"🎬 비디오 생성 중... (Image: {start_idx}~ / Numpy: 0~)")
 
-    # 3. 렌더링 루프
-    for i in tqdm(range(target_len), desc="Drawing 12Kpt Skeleton"):
-        frame = cv2.imread(str(frame_files[i]))
-        if frame is None: continue
+    # 4. 렌더링 루프
+    for i in tqdm(range(target_len), desc="Rendering"):
+        # 이미지는 선택한 구간에서, 데이터는 0번부터 가져옵니다.
+        frame = cv2.imread(str(target_files[i])) # 슬라이싱된 리스트의 i번째(실제 start_idx + i) 이미지를 읽습니다.
+        if frame is None: continue 
 
-        # 현재 프레임의 12관절 데이터 추출 (12, 3)
-        current_kpts = kpt_np[i]
-        coords = current_kpts[:, :2].astype(int)
-        scores = current_kpts[:, 2]
+        # Numpy 데이터는 인덱스 i (즉, 0, 1, 2...)를 그대로 사용합니다.
+        current_kpts = kpt_np[i] # kpt_np의 0번 인덱스부터 차례대로 매칭합니다.
+        coords = current_kpts[:, :2].astype(int) # 좌표 추출 및 정수화합니다.
+        scores = current_kpts[:, 2] # 신뢰도 점수를 추출합니다.
 
-        # ----------------------------------------------------
-        # 🎨 스켈레톤 그리기 로직 (12 Keypoints 기준)
-        # ----------------------------------------------------
-        
-        # 1. Lines (뼈대 연결)
+        # --- [렌더링 로직] ---
+        # 뼈대(Line) 그리기
         for u, v in Config.LINKS_12:
-            if u < 12 and v < 12:  # 인덱스 안전 체크
-                if scores[u] > conf_threshold and scores[v] > conf_threshold:
-                    if coords[u][0] > 0 and coords[v][0] > 0:
-                        cv2.line(frame, tuple(coords[u]), tuple(coords[v]), Config.COLOR_SKELETON, 2, cv2.LINE_AA)
+            if scores[u] > conf_threshold and scores[v] > conf_threshold:
+                if coords[u][0] > 0 and coords[v][0] > 0:
+                    cv2.line(frame, tuple(coords[u]), tuple(coords[v]), Config.COLOR_SKELETON, 2, cv2.LINE_AA)
         
-        # 2. Dots (관절점)
+        # 관절점(Circle) 그리기
         for idx, (x, y) in enumerate(coords):
             if scores[idx] > conf_threshold and x > 0 and y > 0:
-                # 12포인트 기준 색상 매핑
                 color = Config.COLOR_RIGHT if idx in Config.KPT_12_RIGHT else Config.COLOR_LEFT
                 cv2.circle(frame, (x, y), 4, color, -1, cv2.LINE_AA)
 
-        # 3. 자동 BBox 생성 및 그리기
-        valid_mask = (scores > conf_threshold) & (coords[:, 0] > 0) & (coords[:, 1] > 0)
+        # BBox 및 ID 그리기
+        valid_mask = (scores > conf_threshold) & (coords[:, 0] > 0)
         if np.any(valid_mask):
             v_coords = coords[valid_mask]
             min_x, min_y = np.min(v_coords, axis=0)
             max_x, max_y = np.max(v_coords, axis=0)
-            pad = 15 # 박스 여백
-            bbox = [max(0, min_x - pad), max(0, min_y - pad), min(w, max_x + pad), min(h, max_y + pad)]
-            
-            # ID는 Numpy 배열에서 알 수 없으므로 'Filtered' 로 고정 표기
+            bbox = [max(0, min_x - 15), max(0, min_y - 15), min(w, max_x + 15), min(h, max_y + 15)]
             Visualizer.draw_bbox_and_id(frame, bbox, "Filtered", Config.COLOR_ID)
 
-        # 공통 UI: 프레임 정보 표시
-        Visualizer.draw_text_with_bg(
-            frame, 
-            f"Frame: {i}/{target_len}", 
-            (20, h - 20), 
-            align_bottom=True
-        )
+        # 텍스트 정보 표시 (진행 상황 확인용)
+        info_text = f"Img_Idx: {start_idx + i} | NP_Idx: {i}" # 이미지 인덱스와 데이터 인덱스를 같이 보여줍니다.
+        Visualizer.draw_text_with_bg(frame, info_text, (20, h - 20), align_bottom=True)
 
-        out.write(frame)
+        out.write(frame) # 프레임을 비디오 파일에 씁니다.
 
-    out.release()
-    print(f"✅ 완료: {save_path}")
+    out.release() # 작성을 종료하고 파일을 닫습니다.
+    print(f"✅ 비디오 저장 완료: {output_path}")

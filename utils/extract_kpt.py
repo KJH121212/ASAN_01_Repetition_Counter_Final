@@ -4,6 +4,7 @@ from pathlib import Path # 경로 처리를 위한 라이브러리입니다.
 from tqdm import tqdm # 진행 상태 확인을 위한 라이브러리입니다.
 from typing import Union # 타입 힌트를 통해 코드의 안정성을 높이는 라이브러리입니다.
 
+
 # ==========================================
 # 함수 1: 원본 데이터 추출 (Extraction) - 구간(Segment) 지원 버전
 # ==========================================
@@ -89,88 +90,144 @@ def normalize_skeleton_array(data_array):
             
     return norm_data
 
-import json # JSON 파일 입출력을 위한 모듈입니다.
-from pathlib import Path # 파일 경로를 객체 지향적으로 다루기 위한 모듈입니다.
-import numpy as np # 수치 배열 처리를 위한 넘파이입니다.
-from typing import Union # 타입 힌트를 위해 가져옵니다.
-
+# ==========================================
+# 함수 3: 12kpt 17kpt와 동일한 형식으로 덮어쓰기 (다른 ID 유지)
+# ==========================================
 def save_12kpt_to_17kpt_json(
-    src_dir: Union[str, Path], 
-    output_dir: Union[str, Path], 
-    kpt_array: np.ndarray, 
-    target_id: int
-) -> bool:
-    """
-    (N, 12, 3) 형태의 키포인트 배열을 원본 17-Kpt JSON 파일의 5~16번 관절에 병합하여 새로운 폴더에 저장합니다.
-    0~4번(얼굴) 데이터는 원본 그대로 훼손 없이 보존됩니다.
-    
-    Args:
-        src_dir: 원본 JSON 파일들이 있는 디렉토리 경로
-        output_dir: 수정된 JSON 파일들을 저장할 대상 디렉토리 경로
-        kpt_array: 칼만 필터 등이 적용된 (N, 12, 3) 형태의 Numpy 배열
-        target_id: JSON 내에서 좌표를 업데이트할 대상의 고유 ID
-    """
-    src_path = Path(src_dir) # 입력받은 원본 문자열 경로를 Path 객체로 변환합니다.
-    dst_path = Path(output_dir) # 입력받은 저장 문자열 경로를 Path 객체로 변환합니다.
-    
-    # 1. 경로 유효성 검사 및 저장 폴더 생성
-    if not src_path.exists():
-        print(f"❌ 원본 경로가 존재하지 않습니다: {src_path}") # 에러 메시지를 출력합니다.
-        return False
-        
-    dst_path.mkdir(parents=True, exist_ok=True) # 저장할 폴더가 없다면 새로 생성합니다.
-    
-    # 2. 파일 리스트 확보 및 정렬
-    json_files = sorted(list(src_path.glob("*.json"))) # 프레임 순서대로 처리하기 위해 파일명을 정렬합니다.
-    
-    if not json_files:
-        print("⚠️ 처리할 JSON 파일이 폴더에 없습니다.") # 빈 폴더일 경우의 예외 처리입니다.
-        return False
-        
-    # 원본 파일 개수와 넘파이 배열의 프레임 수가 다르면 짝이 맞지 않으므로 경고를 띄워줍니다.
-    if len(json_files) != len(kpt_array):
-        print(f"⚠️ 경고: JSON 파일 개수({len(json_files)})와 배열의 프레임 수({len(kpt_array)})가 다릅니다!")
+    src_dir, 
+    output_dir, 
+    kpt_array, 
+    target_id,
+    start_frame=0  # 리스트 상의 시작 인덱스로 활용됩니다.
+):
+    src_path = Path(src_dir) # 소스 디렉토리 경로 객체를 생성합니다.
+    dst_path = Path(output_dir) # 출력 디렉토리 경로 객체를 생성합니다.
+    dst_path.mkdir(parents=True, exist_ok=True) # 출력 폴더가 없다면 안전하게 생성합니다.
 
-    print(f"\n🚀 12-Kpt 데이터를 원본 JSON(17-Kpt)에 병합하여 저장합니다...")
-    print(f"📂 저장 경로: {dst_path}")
+    # 🌟 원본 디렉토리의 모든 JSON 파일을 가져와 이름순으로 정렬합니다.
+    json_files = sorted(src_path.glob('*.json')) # 파일명 기반으로 오름차순 정렬을 보장합니다.
     
-    processed_count = 0 # 성공적으로 저장된 파일 개수를 추적합니다.
+    # 방어 로직: 시작 프레임이 전체 파일 수보다 크면 중단합니다.
+    if start_frame >= len(json_files): # 인덱스 초과 오류를 방지합니다.
+        print(f"⚠️ 에러: 시작 프레임({start_frame})이 전체 파일 수({len(json_files)})를 벗어납니다.") # 경고 메시지를 출력합니다.
+        return # 함수 실행을 안전하게 종료합니다.
+
+    start_file_name = json_files[start_frame].name # 시작 지점의 실제 파일명을 추출합니다.
+    print(f"🚀 {start_file_name} 파일부터 병합을 시작합니다...") # 사용자에게 시작 지점을 알립니다.
+
+    processed_count = 0 # 성공적으로 처리된 파일 개수를 추적합니다.
     
-    # 3. 파일과 배열을 1:1로 매칭하여 병합 및 저장 수행
-    for json_file, kpt_frame in zip(json_files, kpt_array): # zip을 통해 파일과 프레임 배열을 순서대로 하나씩 꺼냅니다.
+    # kpt_array의 길이만큼 반복하며 매칭되는 JSON을 업데이트합니다.
+    for i in range(len(kpt_array)): # 배열 데이터만큼 루프를 돕니다.
+        file_idx = start_frame + i # 실제 처리할 JSON 파일의 리스트 인덱스를 계산합니다.
+        
+        # 배열은 남았는데 파일이 부족할 경우를 대비한 안전장치입니다.
+        if file_idx >= len(json_files): # 더 이상 읽을 파일이 없다면 중단합니다.
+            print(f"⚠️ 매칭할 원본 파일이 부족하여 루프를 조기 종료합니다. (초과 인덱스: {file_idx})") # 로그를 남깁니다.
+            break # 반복문을 안전하게 빠져나갑니다.
+            
+        json_file = json_files[file_idx] # 처리할 원본 JSON 파일의 전체 경로입니다.
+        json_name = json_file.name # 'frame_001.json' 등 원본 파일의 정확한 이름을 가져옵니다.
+        
+        try:
+            with open(json_file, 'r', encoding='utf-8') as f: # 파일을 읽기 모드로 엽니다.
+                data = json.load(f) # JSON 데이터를 파이썬 딕셔너리로 변환합니다.
+
+            found_target = False # 타겟 ID를 찾았는지 여부를 기록하는 플래그입니다.
+            
+            for inst in data.get('instance_info', []): # instance_info 리스트를 순회합니다.
+                # 'instance_id' 키가 없으면 'id' 키를 안전하게 가져옵니다.
+                inst_id = inst.get('instance_id') if inst.get('instance_id') is not None else inst.get('id') 
+                
+                if inst_id == target_id: # 찾고자 하는 타겟 ID와 일치한다면 업데이트를 시작합니다.
+                    for k in range(12): # 12개의 새로운 키포인트를 반복합니다.
+                        json_idx = k + 5 # 17개 키포인트 포맷에 맞추기 위해 5칸 오프셋을 적용합니다.
+                        # kpt_array의 x, y 좌표를 float 형태로 덮어씁니다.
+                        inst['keypoints'][json_idx][0] = float(kpt_array[i, k, 0]) 
+                        inst['keypoints'][json_idx][1] = float(kpt_array[i, k, 1]) 
+                    found_target = True # 대상을 찾아 업데이트했음을 표시합니다.
+                    break # 현재 파일에서 대상 수정을 완료했으므로 내부 루프를 종료합니다.
+            
+            # 🌟 원본과 완전히 동일한 이름(json_name)으로 새 디렉토리에 저장합니다.
+            save_path = dst_path / json_name # 저장할 최종 경로를 구성합니다.
+            with open(save_path, 'w', encoding='utf-8') as f: # 쓰기 모드로 파일을 엽니다.
+                json.dump(data, f, indent=4) # 수정된 딕셔너리를 보기 좋게(indent=4) 저장합니다.
+            
+            processed_count += 1 # 처리 카운트를 1 증가시킵니다.
+
+        except Exception as e: # 예상치 못한 파일 읽기/쓰기 오류를 잡습니다.
+            print(f"⚠️ {json_name} 처리 중 에러 발생: {e}") # 어떤 파일에서 에러가 났는지 출력합니다.
+
+    # 루프 종료 후 최종 결과를 요약하여 출력합니다.
+    last_file_name = json_files[start_frame + processed_count - 1].name # 마지막으로 저장된 파일의 이름을 확인합니다.
+    print(f"✅ 완료: 총 {processed_count}개 파일 변환 완료! (종료 파일: {last_file_name})") # 성공 알림을 띄웁니다.
+
+# ==========================================
+# 함수 4: 12kpt 17kpt와 동일한 형식으로 덮어쓰기 (patient_id 만 유지)
+# ==========================================
+def save_only_target_kpt_json(
+    src_dir, 
+    output_dir, 
+    kpt_array, 
+    target_id,
+    start_frame=0
+):
+    """
+    JSON 파일 내에서 target_id에 해당하는 인스턴스만 추출하고, 
+    수정된 좌표를 반영하여 새 JSON으로 저장합니다. 나머지 ID는 삭제됩니다.
+    """
+    src_path = Path(src_dir) # 소스 경로 객체입니다.
+    dst_path = Path(output_dir) # 출력 경로 객체입니다.
+    dst_path.mkdir(parents=True, exist_ok=True) # 폴더가 없으면 생성합니다.
+
+    json_files = sorted(src_path.glob('*.json')) # 파일명 순으로 정렬합니다.
+    
+    if start_frame >= len(json_files): # 시작 범위 체크입니다.
+        print(f"⚠️ 에러: 시작 프레임({start_frame})이 파일 범위를 벗어납니다.")
+        return
+
+    processed_count = 0 
+    
+    for i in range(len(kpt_array)): # 입력 데이터 배열만큼 반복합니다.
+        file_idx = start_frame + i 
+        if file_idx >= len(json_files): break 
+            
+        json_file = json_files[file_idx]
+        json_name = json_file.name 
+        
         try:
             with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f) # 원본 JSON 데이터를 파이썬 딕셔너리로 읽어옵니다.
+                data = json.load(f)
+
+            # 🌟 [핵심 수정] 타겟 인스턴스만 담을 새 리스트를 만듭니다.
+            filtered_instances = [] 
+            
+            for inst in data.get('instance_info', []):
+                inst_id = inst.get('instance_id') if inst.get('instance_id') is not None else inst.get('id') 
                 
-            for inst in data.get('instance_info', []): # 인식된 사람(인스턴스) 목록을 순회합니다.
-                inst_id = inst.get('instance_id') if inst.get('instance_id') is not None else inst.get('id')
-                
-                if inst_id == target_id: # 우리가 찾고자 하는 ID와 일치할 때만 덮어씁니다.
+                if inst_id == target_id: # 타겟 ID를 찾았다면
+                    for k in range(12): # 좌표 업데이트 로직입니다.
+                        json_idx = k + 5 
+                        inst['keypoints'][json_idx][0] = float(kpt_array[i, k, 0]) 
+                        inst['keypoints'][json_idx][1] = float(kpt_array[i, k, 1]) 
                     
-                    # 🌟 12개의 관절 데이터를 원본 JSON의 5~16번 인덱스에 병합합니다.
-                    for i in range(12): 
-                        json_idx = i + 5 # kpt_array의 0번 인덱스는 JSON의 5번(어깨) 인덱스에 해당합니다.
-                        
-                        inst['keypoints'][json_idx][0] = float(kpt_frame[i, 0]) # X 좌표를 실수형으로 업데이트합니다.
-                        inst['keypoints'][json_idx][1] = float(kpt_frame[i, 1]) # Y 좌표를 실수형으로 업데이트합니다.
-                        
-                        # Score 형태가 단일 값인지 리스트인지 구분하여 안전하게 업데이트합니다.
-                        if isinstance(inst['keypoint_scores'][json_idx], list):
-                            inst['keypoint_scores'][json_idx][0] = float(kpt_frame[i, 2])
-                        else:
-                            inst['keypoint_scores'][json_idx] = float(kpt_frame[i, 2])
-                            
-                    break # 타겟 ID의 좌표를 모두 수정했으므로, 더 이상 찾지 않고 루프를 탈출합니다.
-                    
-            # 4. 수정된 데이터를 새 파일로 저장
-            save_path = dst_path / json_file.name # 원본 파일명과 동일하게 새 경로를 만듭니다.
+                    # 수정한 타겟 인스턴스만 새 리스트에 추가합니다.
+                    filtered_instances.append(inst) 
+                    break # 한 파일에 타겟 ID가 하나라면 내부 루프 종료
+            
+            # 🌟 [핵심 수정] 기존 리스트를 타겟만 담긴 리스트로 교체합니다.
+            # 이 작업을 통해 나머지 다른 Skeleton들은 데이터에서 제외됩니다.
+            data['instance_info'] = filtered_instances 
+
+            # 타겟 ID가 해당 프레임에 존재했을 때만 저장하고 싶다면 아래 조건을 사용하세요.
+            # if len(filtered_instances) > 0:
+            save_path = dst_path / json_name 
             with open(save_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4) # 사람이 읽을 수 있도록 예쁘게 들여쓰기(indent)하여 저장합니다.
-                
-            processed_count += 1 # 저장이 완료되면 카운트를 증가시킵니다.
+                json.dump(data, f, indent=4) 
             
+            processed_count += 1
+
         except Exception as e:
-            print(f"⚠️ {json_file.name} 처리 중 에러 발생: {e}") # 에러가 나더라도 전체 프로세스가 죽지 않도록 잡아줍니다.
-            
-    print(f"✅ 완료: 총 {processed_count}개의 파일이 성공적으로 저장되었습니다!\n")
-    return True # 전체 과정이 정상적으로 끝났음을 반환합니다.
+            print(f"⚠️ {json_name} 처리 중 에러 발생: {e}")
+
+    print(f"✅ 완료: 오직 ID {target_id}만 포함된 {processed_count}개 파일 저장 완료!")

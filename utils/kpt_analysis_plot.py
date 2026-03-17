@@ -151,3 +151,4 @@ def plot_and_save_12kpt_analysis(data_array, save_path=None):
         print(f"✅ 12KPT 분석 그래프가 저장되었습니다: {save_path}")
 
     plt.show()
+    plt.close()

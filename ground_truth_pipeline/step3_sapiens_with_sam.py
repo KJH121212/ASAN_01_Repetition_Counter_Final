@@ -293,3 +293,161 @@ def run_sapiens_batch_inference(frame_dir, sam_dir, output_dir, config_path, ckp
                 json.dump(data_j, f, ensure_ascii=False, indent=4) # indent=4로 예쁘게 출력
                 
     return len(list(output_dir.glob("*.json")))
+
+#=============================
+# patient 누락 파일 목록만 대상으로 sam_2_sapiens 실행
+#==============================
+import json
+import torch
+from pathlib import Path
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+
+# 1. 사용자님이 검증하신 누락 데이터 분석 함수 (그대로 유지)
+def find_missing_instances(sam_dir, kpt_dir, target_id):
+    sam_dir, kpt_dir = Path(sam_dir), Path(kpt_dir)
+    target_id = int(target_id)
+    needs_processing = []
+    
+    # 기준을 kpt_dir에 있는 파일들로 잡거나 sam_dir로 잡을 수 있는데, 
+    # 매칭 시도를 했던 sam_files 기준으로 루프를 도는 것이 안전합니다.
+    sam_files = sorted(list(sam_dir.glob("*.json")))
+    
+    for sam_path in tqdm(sam_files, desc="🔍 누락 데이터 분석 중"):
+        try:
+            res_path = kpt_dir / sam_path.name
+            target_found_in_kpt = False
+
+            # 1. Skeleton(결과) 파일 먼저 확인
+            if res_path.exists():
+                with open(res_path, "r", encoding="utf-8") as f:
+                    res_data = json.load(f)
+                
+                kpt_ids = [
+                    int(inst['instance_id']) for inst in res_data.get('instance_info', []) 
+                    if inst and inst.get('instance_id') is not None
+                ]
+                
+                if target_id in kpt_ids:
+                    target_found_in_kpt = True
+
+            # 2. 결과에 없을 경우에만 SAM 파일 확인
+            if not target_found_in_kpt:
+                with open(sam_path, "r", encoding="utf-8") as f:
+                    sam_data = json.load(f)
+                
+                sam_ids = [int(obj['id']) for obj in sam_data.get('objects', []) if obj.get('id') is not None]
+                
+                # Skeleton에는 없는데 SAM에는 존재한다면? -> "매칭 실패 누락"
+                if target_id in sam_ids:
+                    needs_processing.append(sam_path.name)
+                # 둘 다 없다면? -> "리스트 추가 안 함" (자연스럽게 넘어감)
+                
+        except Exception as e:
+            print(f"\n⚠️ 오류 발생 [{sam_path.name}]: {e}")
+
+    print(f"\n📊 검사 완료: 총 {len(needs_processing)}개의 매칭 실패 프레임을 발견했습니다.")
+    return needs_processing
+
+
+# 2. 추출된 리스트만 가지고 추론하는 함수
+def run_sapiens_inference_from_list(missing_list, frame_dir, sam_dir, output_dir, config_path, ckpt_path, target_id, batch_size=8):
+    frame_dir, sam_dir, output_dir = Path(frame_dir), Path(sam_dir), Path(output_dir)
+    target_id = int(target_id)
+
+    # 작업 구성
+    tasks = []
+    print(f"📦 작업 리스트 구성 중...")
+    for file_name in missing_list:
+        sam_path = sam_dir / file_name
+        with open(sam_path, "r", encoding="utf-8") as f:
+            sam_data = json.load(f)
+        
+        target_objs = [obj for obj in sam_data.get('objects', []) if int(obj['id']) == target_id]
+        img_name = sam_data.get('file_name', sam_path.stem + ".jpg")
+        if (frame_dir / img_name).exists():
+            tasks.append((sam_path, img_name, target_objs))
+
+    if not tasks:
+        print("✅ 처리할 작업이 없습니다.")
+        return
+
+    # BBox 안정화 (기존 함수 활용)
+    tasks = stabilize_bboxes(tasks)
+
+    # 모델 로드
+    print(f"🚀 Sapiens 모델 로딩: {ckpt_path}")
+    model = init_model(str(config_path), str(ckpt_path), device='cuda:0')
+    model.eval()
+
+    dataset = SapiensBatchDataset(tasks, frame_dir)
+    loader = DataLoader(dataset, batch_size=batch_size, num_workers=4, shuffle=False, collate_fn=collate_fn)
+
+    # 추론 루프
+    for batch in tqdm(loader, desc="⚡ 추론 진행 중"):
+        if batch is None: continue
+        inputs, metas = batch
+        inputs = inputs.to('cuda', non_blocking=True)
+
+        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
+            feats = model.extract_feat(inputs)
+            preds = model.head.predict(feats, [PoseDataSample(metainfo=dict(input_size=m['input_size'])) for m in metas])
+
+        for i, pred_sample in enumerate(preds):
+            meta = metas[i]
+            
+            # [에러 수정]: AttributeError 방어 로직
+            # pred_sample이 InstanceData일 경우 바로 접근, 아니면 pred_instances 접근
+            if hasattr(pred_sample, 'pred_instances'):
+                instances = pred_sample.pred_instances
+            else:
+                instances = pred_sample 
+            
+            kpts_crop = instances.keypoints
+            scores = instances.keypoint_scores
+
+            # 차원 정리 (N, K, 2) -> (K, 2)
+            if kpts_crop.ndim == 3:
+                kpts_crop = kpts_crop[0]
+                scores = scores[0]
+            
+            if isinstance(kpts_crop, torch.Tensor): kpts_crop = kpts_crop.cpu().numpy()
+            if isinstance(scores, torch.Tensor): scores = scores.cpu().numpy()
+
+            pad_x, pad_y = meta['padding']
+            scale = meta['scale_factor']
+            off_x, off_y = meta['crop_bbox'][:2]
+            
+            final_kpts = []
+            for (cx, cy) in kpts_crop:
+                fx = ((cx - pad_x) / scale) + off_x
+                fy = ((cy - pad_y) / scale) + off_y
+                final_kpts.append([float(fx), float(fy)])
+
+            instance_item = {
+                "keypoints": final_kpts,
+                "keypoint_scores": scores.tolist(),
+                "bbox": [float(v) for v in meta['crop_bbox']],
+                "bbox_score": 1.0,
+                "instance_id": target_id
+            }
+
+            # 파일 업데이트
+            save_path = output_dir / f"{meta['stem']}.json"
+            if save_path.exists():
+                with open(save_path, "r", encoding="utf-8") as f:
+                    data_j = json.load(f)
+                # 중복 추가 방지
+                existing_ids = [inst.get('instance_id') for inst in data_j.get('instance_info', [])]
+                if target_id not in existing_ids:
+                    data_j['instance_info'].append(instance_item)
+            else:
+                data_j = {
+                    "frame_index": meta['frame_idx'],
+                    "meta_info": to_py(model.dataset_meta),
+                    "instance_info": [instance_item]
+                }
+            
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(data_j, f, ensure_ascii=False, indent=4)
+

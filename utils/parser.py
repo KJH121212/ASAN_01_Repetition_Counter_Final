@@ -24,15 +24,3 @@ def parse_common_path(common_path: str):
         # 규칙에 맞지 않는 예외 경로일 경우를 대비한 안전망입니다.
         print(f"⚠️ [경고] 경로 이름 규칙이 맞지 않습니다: {folder_name}")
         return None, None
-
-# =================================================================
-# 🧪 테스트 (작동 확인용)
-# =================================================================
-if __name__ == "__main__":
-    test_path_1 = "AI_dataset/N01/N01_Treatment/diagonal__biceps_curl"
-    test_path_2 = "AI_dataset/N01/N01_Treatment/frontal__biceps_curl__1"
-    test_path_3 = "AI_dataset/N01/N01_Treatment/lateral__squat__2"
-    
-    print(parse_common_path(test_path_1)) # 출력: ('diagonal', 'biceps_curl')
-    print(parse_common_path(test_path_2)) # 출력: ('frontal', 'biceps_curl')
-    print(parse_common_path(test_path_3)) # 출력: ('lateral', 'squat')

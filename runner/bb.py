@@ -30,4 +30,21 @@ start_frame = bosan_df.iloc[target]['start_frame']
 end_frame = bosan_df.iloc[target]['end_frame']
 
 paths = path_list(common_path)
-patient_id = int(meta_df.loc[meta_df['common_path'] == common_path, 'patient_id'].iloc[0]) # 조건에 맞는 첫 번째 ID 값을 안전하게 꺼내어 정수형(int)으로 변환합니다.
+patient_id = int(meta_df.loc[meta_df['common_path'] == common_path, 'patient_id'].iloc[0]) 
+
+from ground_truth_pipeline.step4_assign_ids import assign_sam_ids_to_keypoints
+
+assign_sam_ids_to_keypoints(
+    sam_dir=paths['sam'],
+    kpt_dir=paths['keypoint'],
+    output_dir=paths['test']/"assign_v1.4"
+)
+
+generate_17kpt_skeleton_video(
+    frame_dir=paths['frame'],
+    kpt_dir=paths['test']/"assign_v1.4",
+    output_path=paths['test']/"assign_v1.4.mp4",
+    conf_threshold=0
+)
+
+

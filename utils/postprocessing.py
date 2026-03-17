@@ -1,101 +1,99 @@
 from pathlib import Path # 파일 경로 처리를 위해 Path 객체를 가져옵니다.
 import json # JSON 파일 읽기/쓰기를 위해 json 모듈을 가져옵니다.
 from tqdm import tqdm # 진행 상황을 시각적으로 보여주기 위해 tqdm을 가져옵니다.
-from typing import List, Optional, Union # 타입 힌팅을 통해 코드 가독성과 안정성을 높입니다.
+from typing import Literal, List, Optional, Union # 타입 힌팅을 통해 코드 가독성과 안정성을 높입니다.
 import numpy as np # 수학 연산 및 배열 처리를 위해 numpy를 가져옵니다.
 from utils.extract_kpt import extract_id_keypoints, normalize_skeleton_array
 import pandas as pd # 선형 보간을 위해 pandas를 가져옵니다.
+from scipy import stats # 최빈값(mode)을 빠르고 쉽게 계산하기 위해 scipy의 stats 모듈을 불러옵니다.
 
-def filter_and_save_json_segment(
-    src_kpt_dir: Union[str, Path], 
-    dst_kpt_dir: Union[str, Path], 
-    target_ids: Optional[List[int]] = None, 
-    start_frame: int = 0, 
-    end_frame: int = float('inf')
-):
+# ==========================================
+# 함수 1: 특정 인물의 데이터만 골라내어 별도 폴더에 저장
+# ==========================================
+def apply_axis_selective_iqr_filter(
+    data_np: np.ndarray, 
+    target_kpts: Optional[List[int]] = None,
+    max_pixel_speed: float = 50.0, 
+    iqr_multiplier: float = 3.0, 
+    use_iqr: bool = True,
+    axis: Literal['x', 'y', 'both'] = 'both'
+) -> np.ndarray:
     """
-    JSON 파일 내 특정 ID만 남기고 나머지는 저장하지 않는 함수
-    start_frame과 end_frame을 이용해 특정 구간의 JSON 파일만 처리할 수 있습니다.
+    특정 관절(target_kpts)과 특정 축(axis)을 선택하여 IQR 기반 이상치 보정을 수행합니다.
     
     Args:
-        src_kpt_dir: 원본 JSON 폴더 경로
-        dst_kpt_dir: 저장할 JSON 폴더 경로
-        target_ids: 남길 ID 리스트. None이면 모든 ID 유지. (예: [1, 2])
-        start_frame: 시작 프레임 번호 (파일명 기준)
-        end_frame: 종료 프레임 번호 (파일명 기준)
+        data_np: (Frames, Kpts, 3) 형태의 넘파이 배열.
+        target_kpts: 필터를 적용할 관절 인덱스 리스트 (예: [10, 11] - 양발). 
+                     None이면 모든 관절에 적용합니다.
+        max_pixel_speed: 물리적 한계 속도.
+        iqr_multiplier: IQR 가중치. (1.5: 엄격, 3.0: 보통)
+        axis: 필터링할 축 설정 ('x', 'y', 'both').
     """
-    src_path = Path(src_kpt_dir)
-    dst_path = Path(dst_kpt_dir)
+    filtered_np = data_np.copy()
+    frames, n_kpts, _ = filtered_np.shape
     
-    # 1. 경로 확인 및 생성
-    if not src_path.exists():
-        print(f"❌ 원본 경로가 없습니다: {src_path}")
-        return False
-    
-    dst_path.mkdir(parents=True, exist_ok=True)
-    
-    # 2. 파일 리스트 확보 및 숫자 기준 정렬
-    # 파일명이 '000123.json' 형태라고 가정하고 정렬
-    all_files = sorted(list(src_path.glob("*.json")))
-    
-    if not all_files:
-        print("⚠️ 처리할 JSON 파일이 없습니다.")
-        return False
+    # 대상 관절이 지정되지 않았다면 전체 관절을 대상으로 설정합니다.
+    if target_kpts is None:
+        target_kpts = list(range(n_kpts))
+        
+    for k in target_kpts:
+        # 1. 축별 속도 데이터 확보
+        v_x = np.zeros(frames)
+        v_y = np.zeros(frames)
+        # 각 프레임 간의 좌표 차이(절대값)를 계산하여 속도로 간주합니다.
+        v_x[1:] = np.abs(filtered_np[1:, k, 0] - filtered_np[:-1, k, 0])
+        v_y[1:] = np.abs(filtered_np[1:, k, 1] - filtered_np[:-1, k, 1])
 
-    # 3. 구간(Segment)에 맞는 파일만 선별
-    target_files = []
-    for f in all_files:
-        try:
-            # 파일명에서 숫자 추출 (예: '000123.json' -> 123)
-            frame_idx = int(f.stem)
-            if start_frame <= frame_idx <= end_frame:
-                target_files.append(f)
-        except ValueError:
-            # 파일명이 숫자가 아닌 경우 건너뜀 (혹은 필요시 포함)
-            continue
+        # 2. IQR 임계값 계산
+        thresholds = {'x': max_pixel_speed, 'y': max_pixel_speed}
+        if use_iqr:
+            for ax_name, v_data in zip(['x', 'y'], [v_x, v_y]):
+                valid_v = v_data[(v_data > 0) & (v_data <= max_pixel_speed)]
+                if len(valid_v) > 5:
+                    q1, q3 = np.percentile(valid_v, [25, 75])
+                    iqr = q3 - q1
+                    stat_threshold = q3 + (iqr_multiplier * iqr)
+                    thresholds[ax_name] = min(max_pixel_speed, stat_threshold)
+
+        # 3. 이상치 탐지 및 NaN 처리
+        last_valid_x = None
+        last_valid_y = None
+        
+        for f in range(frames):
+            curr_x, curr_y = filtered_np[f, k, 0], filtered_np[f, k, 1]
+            score = filtered_np[f, k, 2]
             
-    if not target_files:
-        print(f"⚠️ 설정한 구간({start_frame}~{end_frame})에 해당하는 파일이 없습니다.")
-        return False
-
-    # 4. 필터링 모드 확인 (ID 지정 vs 전체)
-    filter_mode = "Specific IDs" if target_ids else "Keep All IDs"
-    print(f"\n🚀 Processing Segment: {start_frame} ~ {end_frame}")
-    print(f"⚙️ Filter Mode: {filter_mode} (Targets: {target_ids})")
-    
-    processed_count = 0
-    
-    # 5. 파일 처리 루프
-    for json_file in tqdm(target_files, desc="Processing JSONs"):
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # 신뢰도가 낮거나 좌표가 (0,0)인 데이터는 기본적으로 제거 대상
+            is_invalid = (score <= 0 or (curr_x == 0 and curr_y == 0))
             
-            # --- [핵심 로직] ID 필터링 ---
-            # target_ids가 존재할 때만 필터링 수행, 없으면 원본 유지
-            if target_ids is not None and 'instance_info' in data:
-                filtered_instances = [
-                    inst for inst in data['instance_info'] 
-                    if inst.get('instance_id') in target_ids # 혹은 inst.get('id')
-                ]
-                data['instance_info'] = filtered_instances
-            # ---------------------------
+            # X축 체크
+            if is_invalid or (axis in ['x', 'both'] and last_valid_x is not None and 
+                             np.abs(curr_x - last_valid_x) > thresholds['x']):
+                filtered_np[f, k, 0] = np.nan
+            else:
+                last_valid_x = curr_x
+            
+            # Y축 체크
+            if is_invalid or (axis in ['y', 'both'] and last_valid_y is not None and 
+                             np.abs(curr_y - last_valid_y) > thresholds['y']):
+                filtered_np[f, k, 1] = np.nan
+            else:
+                last_valid_y = curr_y
 
-            # 데이터 저장 (파일명 그대로 유지)
-            save_path = dst_path / json_file.name
-            with open(save_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4)
-                
-            processed_count += 1
+        # 4. Pandas를 이용한 선형 보간 수행
+        if axis in ['x', 'both']:
+            s_x = pd.Series(filtered_np[:, k, 0])
+            filtered_np[:, k, 0] = s_x.interpolate(method='linear', limit_direction='both').to_numpy()
+            
+        if axis in ['y', 'both']:
+            s_y = pd.Series(filtered_np[:, k, 1])
+            filtered_np[:, k, 1] = s_y.interpolate(method='linear', limit_direction='both').to_numpy()
 
-        except Exception as e:
-            print(f"⚠️ Error processing {json_file.name}: {e}")
+    return filtered_np
 
-    print(f"✅ 완료: {processed_count}개의 파일이 '{dst_path}'에 저장되었습니다.\n")
-    return True
-import numpy as np # 수치 연산 및 배열 처리를 위한 넘파이입니다.
-import numpy as np
-
+# ==========================================
+# class 1 : oulier 발생시, 이전 정상 위치를 유지
+# ==========================================
 class PredictiveKalmanFilter:
     def __init__(self, threshold=0.1, q_std=0.05, r_std=0.01):
         self.threshold = threshold
@@ -159,36 +157,64 @@ class PredictiveKalmanFilter:
             self.last_valid_z = z_flat # 🌟 정상적인 값이므로 "최근 정상값"을 업데이트합니다.
             return z_flat
 
-def apply_custom_kalman(data_np, threshold=0.1, q_std=0.05, r_std=0.01):
-    """
-    (N, 12, 3) 배열에 커스텀 칼만 필터를 적용합니다.
-    """
-    frames, n_kpts, _ = data_np.shape
-    filtered_np = data_np.copy()
-    
-    # 각 관절마다 필터 생성
-    filters = [PredictiveKalmanFilter(threshold=threshold, q_std=q_std, r_std=r_std) for _ in range(n_kpts)]
-    
-    for f in range(frames):
-        for k in range(n_kpts):
-            z = data_np[f, k, :2]
-            score = data_np[f, k, 2]
-            
-            # 관절이 인식된 경우 처리
-            if score > 0 and not np.all(z == 0):
-                filtered_np[f, k, :2] = filters[k].process(z)
-            else:
-                # 🌟 [수정됨] 화면에서 가려져 관절을 놓친 경우(결측치)에도, 
-                # 예측 보간 대신 '이전 정상 측정값'을 그대로 복사하여 제자리에 멈춰있게 합니다.
-                if filters[k].last_valid_z is not None:
-                    # 내부 상태도 속도 0으로 묶어둡니다.
-                    filters[k].x[:2] = filters[k].last_valid_z.reshape(2, 1)
-                    filters[k].x[2:] = 0 
-                    
-                    filtered_np[f, k, :2] = filters[k].last_valid_z
-                    
-    return filtered_np
+# ==========================================
+# class 2 : oulier 발생시, 예측값을 따라 정상값 변경
+# ==========================================
+class VelocityPredictiveKalman:
+    def __init__(self, threshold=30.0, q_std=0.01, r_std=0.5):
+        self.threshold = threshold 
+        self.dt = 1.0
+        self.x = None  # [x, y, vx, vy]
+        self.P = np.eye(4)
+        
+        # 상태 전이 행렬 (등속 모델)
+        self.F = np.array([
+            [1, 0, self.dt, 0],
+            [0, 1, 0, self.dt],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+        
+        self.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+        self.Q = np.eye(4) * (q_std**2)
+        self.R = np.eye(2) * (r_std**2)
 
+    def process_step(self, z):
+        """
+        한 프레임에 대한 예측 및 업데이트 로직 (내부 계산용)
+        """
+        z_col = np.array(z).reshape(2, 1)
+        
+        if self.x is None:
+            self.x = np.zeros((4, 1))
+            self.x[:2] = z_col
+            return z_col.flatten(), z_col.flatten() # (실제 결과, 모델 예측값)
+
+        # 1. 예측 (Predict)
+        x_pred = self.F @ self.x
+        P_pred = self.F @ self.P @ self.F.T + self.Q
+        pos_pred = (self.H @ x_pred).flatten()
+        
+        # 2. 잔차 및 이상치 판별
+        dist = np.linalg.norm(z.flatten() - pos_pred)
+        
+        if dist > self.threshold:
+            # 🚨 Outlier 발생: 예측값 채택
+            self.x = x_pred
+            self.P = P_pred
+            return pos_pred, pos_pred # 결과값으로 예측치를 사용
+        else:
+            # 🟢 정상: 칼만 업데이트
+            y = z_col - (self.H @ x_pred)
+            S = self.H @ P_pred @ self.H.T + self.R
+            K = P_pred @ self.H.T @ np.linalg.inv(S)
+            self.x = x_pred + K @ y
+            self.P = (np.eye(4) - K @ self.H) @ P_pred
+            return (self.H @ self.x).flatten(), pos_pred
+
+# ==========================================
+# 함수 2: IQR 방식을 이용해서 outlier를 찾고 빈자리를 선형 보간으로 체워주는 함수
+# ==========================================
 def apply_interpolation_outlier_filter(data_np, max_pixel_speed=50.0, use_iqr=True, iqr_multiplier=3.0):
     """
     속도 및 IQR 기반으로 Outlier를 탐지하여 빈칸(NaN)으로 만든 뒤, 
@@ -259,70 +285,247 @@ def apply_interpolation_outlier_filter(data_np, max_pixel_speed=50.0, use_iqr=Tr
         filtered_np[:, k, 1] = series_y.interpolate(method='linear', limit_direction='both').to_numpy()
         
     return filtered_np # Outlier가 부드럽게 교정된 최종 배열을 반환합니다.
-import os
-import json
-import numpy as np
-import pandas as pd
 
-def apply_sam_mask_outlier_filter(data_np, sam_dir, patient_id):
+# ==========================================
+# 함수 3: 칼만 필터 기반 outlier 변경 (이전 값 복사)
+# ==========================================
+def apply_axis_selective_kalman(data_np, threshold=0.1, q_std=0.05, r_std=0.01, target_kpts=None, axis='both'):
     """
-    특정 patient_id의 마스크 내부에 키포인트가 위치할 경우, 
-    해당 좌표를 제거(NaN)하고 선형 보간합니다.
+    특정 축(X, Y, 혹은 둘 다)을 선택하여 칼만 필터를 적용합니다.
+    
+    Args:
+        data_np: 원본 넘파이 배열 (N, 12, 3)
+        threshold, q_std, r_std: 칼만 필터 파라미터
+        target_kpts: 필터를 적용할 관절 인덱스 리스트
+        axis: 필터를 적용할 축 설정 ('x', 'y', 'both')
+    """
+    frames, n_kpts, _ = data_np.shape # 데이터의 차원 정보를 가져옵니다.
+    filtered_np = data_np.copy() # 원본 데이터 보존을 위해 복사본을 생성합니다.
+    
+    # 각 관절마다 독립적인 필터 인스턴스를 생성합니다.
+    filters = [PredictiveKalmanFilter(threshold=threshold, q_std=q_std, r_std=r_std) for _ in range(n_kpts)]
+    
+    # 대상 관절이 지정되지 않았다면 모든 관절에 대해 수행합니다.
+    if target_kpts is None:
+        target_kpts = list(range(n_kpts))
+        
+    for f in range(frames): # 모든 프레임을 순회합니다.
+        for k in target_kpts: # 지정된 관절들만 순회합니다.
+            z = data_np[f, k, :2].copy() # 현재 프레임의 x, y 좌표를 가져옵니다.
+            score = data_np[f, k, 2] # 현재 프레임의 신뢰도 점수를 가져옵니다.
+            
+            # 관절이 유효하게 인식된 경우
+            if score > 0 and not np.all(z == 0):
+                # 칼만 필터 프로세스 실행 (내부적으로 x, y 모두 처리)
+                kf_result = filters[k].process(z) # 필터링된 [x, y] 결과를 얻습니다.
+                
+                # --- [축 선택 로직] ---
+                if axis == 'x':
+                    filtered_np[f, k, 0] = kf_result[0] # X축만 필터링된 값을 적용합니다.
+                    # Y축은 원본(data_np[f, k, 1])을 유지합니다.
+                elif axis == 'y':
+                    filtered_np[f, k, 1] = kf_result[1] # Y축만 필터링된 값을 적용합니다.
+                    # X축은 원본(data_np[f, k, 0])을 유지합니다.
+                else: # 'both'인 경우
+                    filtered_np[f, k, :2] = kf_result # X, Y 모두 필터링된 값을 적용합니다.
+            
+            # 관절을 놓친 경우 (결측치 처리)
+            else:
+                if filters[k].last_valid_z is not None:
+                    # 필터 내부 상태 업데이트 (속도 0으로 고정)
+                    filters[k].x[:2] = filters[k].last_valid_z.reshape(2, 1)
+                    filters[k].x[2:] = 0 
+                    
+                    # 결측치 구간에서도 선택된 축에 따라 마지막 유효값을 채워넣습니다.
+                    if axis == 'x':
+                        filtered_np[f, k, 0] = filters[k].last_valid_z[0]
+                    elif axis == 'y':
+                        filtered_np[f, k, 1] = filters[k].last_valid_z[1]
+                    else:
+                        filtered_np[f, k, :2] = filters[k].last_valid_z
+                        
+    return filtered_np # 최종 결과 배열을 반환합니다.
+
+# ==========================================
+# 함수 3: 칼만 필터 기반 outlier 변경 (예측값 사용)
+# ==========================================
+def apply_axis_velocity_kalman(data_np, threshold=25.0, q_std=0.01, r_std=0.5, target_kpts=None, axis='both'):
+    """
+    이상치 발생 시 예측값을 사용하며, X/Y 축별로 선택적 적용이 가능한 함수입니다.
     """
     frames, n_kpts, _ = data_np.shape
     filtered_np = data_np.copy()
     
-    json_files = sorted([f for f in os.listdir(sam_dir) if f.endswith('.json')])
+    filters = [VelocityPredictiveKalman(threshold=threshold, q_std=q_std, r_std=r_std) for _ in range(n_kpts)]
     
-    for f_idx in range(min(frames, len(json_files))):
-        json_path = os.path.join(sam_dir, json_files[f_idx])
-        
-        with open(json_path, 'r') as f:
-            sam_data = json.load(f)
-        
-        # 1. 해당 프레임에서 patient_id와 일치하는 object 찾기
-        target_obj = None
-        for obj in sam_data.get('objects', []):
-            if obj.get('id') == patient_id: # JSON의 id와 patient_id 매칭
-                target_obj = obj
-                break
-        
-        if target_obj is None:
-            continue # 해당 프레임에 대상 환자가 없으면 스킵
+    if target_kpts is None:
+        target_kpts = list(range(n_kpts))
+
+    for f in range(frames):
+        for k in target_kpts:
+            z_orig = data_np[f, k, :2].copy()
+            score = data_np[f, k, 2]
             
-        # 2. 마스크 복원 (Fortran order 'F' 사용)
-        seg = target_obj['segmentation']
-        h, w = seg['size']
-        counts = seg['counts']
-        
-        mask_flat = np.zeros(h * w, dtype=np.uint8)
-        current_pos = 0
-        val = 0 
-        for count in counts:
-            mask_flat[current_pos : current_pos + count] = val
-            current_pos += count
-            val = 1 - val
-        
-        # SAM/COCO 표준인 세로 방향(F)으로 복원
-        binary_mask = mask_flat.reshape((h, w), order='F')
-
-        # 3. 마스크 내부 여부 확인 및 제거
-        for k in range(n_kpts):
-            x, y = filtered_np[f_idx, k, 0], filtered_np[f_idx, k, 1]
-            if np.isnan(x) or np.isnan(y): continue
-
-            ix, iy = int(round(x)), int(round(y))
-            
-            if 0 <= ix < w and 0 <= iy < h:
-                # 🌟 [핵심 변경] 마스크 내부(1)에 있으면 제거하여 보간 대상(NaN)으로 만듦
-                if binary_mask[iy, ix] == 1: 
-                    filtered_np[f_idx, k, :2] = np.nan
-
-    # 4. 제거된(NaN) 구간 선형 보간
-    for k in range(n_kpts):
-        series_x = pd.Series(filtered_np[:, k, 0])
-        series_y = pd.Series(filtered_np[:, k, 1])
-        filtered_np[:, k, 0] = series_x.interpolate(method='linear', limit_direction='both').to_numpy()
-        filtered_np[:, k, 1] = series_y.interpolate(method='linear', limit_direction='both').to_numpy()
-        
+            if score > 0 and not np.all(z_orig == 0):
+                # 필터링 결과와 모델의 예측값을 가져옵니다.
+                kf_res, pred_res = filters[k].process_step(z_orig)
+                
+                # --- [축 선택 적용 로직] ---
+                if axis == 'x':
+                    filtered_np[f, k, 0] = kf_res[0] # X만 필터값(혹은 예측값) 적용
+                elif axis == 'y':
+                    filtered_np[f, k, 1] = kf_res[1] # Y만 필터값(혹은 예측값) 적용
+                else: # 'both'
+                    filtered_np[f, k, :2] = kf_res
+            else:
+                # 데이터가 없을 때(결측치)는 무조건 예측 경로를 따라갑니다.
+                if filters[k].x is not None:
+                    x_next = filters[k].F @ filters[k].x
+                    filters[k].x = x_next
+                    filters[k].P = filters[k].F @ filters[k].P @ filters[k].F.T + filters[k].Q
+                    pos_only = (filters[k].H @ x_next).flatten()
+                    
+                    if axis == 'x': filtered_np[f, k, 0] = pos_only[0]
+                    elif axis == 'y': filtered_np[f, k, 1] = pos_only[1]
+                    else: filtered_np[f, k, :2] = pos_only
+                    
     return filtered_np
+
+# ==========================================
+# 함수 4: 칼만 필터 기반 smoothing 적용(RTS:Rauch Tung Strievel)
+# ==========================================
+def apply_kalman_smoothing(data_np, q_std=0.01, r_std=0.1, target_kpts=None, axis='both'):
+    """
+    RTS(Rauch-Tung-Striebel) Smoother를 적용하여 전체 경로를 부드럽게 만듭니다.
+    일반 칼만 필터보다 지연(Lag)이 적고 곡선이 훨씬 매끄럽습니다.
+    
+    Args:
+        data_np: (Frames, Kpts, 3) 넘파이 배열
+        q_std: 과정 노이즈 (낮을수록 경로가 직선에 가까워짐)
+        r_std: 측정 노이즈 (높을수록 원본 값을 덜 믿고 부드럽게 만듦)
+        target_kpts: 적용할 관절 리스트
+    """
+    frames, n_kpts, _ = data_np.shape
+    filtered_np = data_np.copy()
+    
+    if target_kpts is None:
+        target_kpts = list(range(n_kpts))
+
+    dt = 1.0
+    # 등속 모델 설정
+    F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
+    H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+    Q = np.eye(4) * (q_std**2)
+    R = np.eye(2) * (r_std**2)
+
+    for k in target_kpts:
+        # 1. Forward Pass (일반 칼만 필터링)
+        x_history = np.zeros((frames, 4, 1))
+        P_history = np.zeros((frames, 4, 4))
+        x_preds = np.zeros((frames, 4, 1))
+        P_preds = np.zeros((frames, 4, 4))
+        
+        curr_x = np.zeros((4, 1))
+        curr_x[:2] = data_np[0, k, :2].reshape(2, 1)
+        curr_P = np.eye(4)
+
+        for f in range(frames):
+            # Predict
+            x_pred = F @ curr_x
+            P_pred = F @ curr_P @ F.T + Q
+            
+            x_preds[f] = x_pred
+            P_preds[f] = P_pred
+            
+            # Update
+            z = data_np[f, k, :2].reshape(2, 1)
+            score = data_np[f, k, 2]
+            
+            if score > 0 and not np.all(z == 0):
+                y = z - (H @ x_pred)
+                S = H @ P_pred @ H.T + R
+                K = P_pred @ H.T @ np.linalg.inv(S)
+                curr_x = x_pred + K @ y
+                curr_P = (np.eye(4) - K @ H) @ P_pred
+            else:
+                curr_x, curr_P = x_pred, P_pred
+                
+            x_history[f] = curr_x
+            P_history[f] = curr_P
+
+        # 2. Backward Pass (RTS Smoothing)
+        # 마지막 프레임부터 거꾸로 계산하여 미래 정보를 현재에 반영합니다.
+        smoothed_x = x_history.copy()
+        for f in range(frames - 2, -1, -1):
+            # Smoothing Gain
+            C = P_history[f] @ F.T @ np.linalg.inv(P_preds[f+1])
+            smoothed_x[f] = x_history[f] + C @ (smoothed_x[f+1] - x_preds[f+1])
+
+        # 3. 결과 반영
+        for f in range(frames):
+            res = (H @ smoothed_x[f]).flatten()
+            if axis == 'x': filtered_np[f, k, 0] = res[0]
+            elif axis == 'y': filtered_np[f, k, 1] = res[1]
+            else: filtered_np[f, k, :2] = res
+
+    return filtered_np
+
+# ==========================================
+# 함수 5: 최빈값, 중앙값 등의 방식으로 kpt 고정하는 함수
+# ==========================================
+import numpy as np # 수치 배열 연산과 히스토그램 계산을 위해 numpy 라이브러리를 불러옵니다.
+from scipy import stats # 단순 최빈값(mode)을 계산하기 위해 scipy의 stats 모듈을 불러옵니다.
+
+def fix_keypoints_to_stat(data_np, target_kpts, axis='both', method='binned_mode', bin_size=10.0, min_score=0.05): # 구역 옵션이 추가된 대푯값 고정 함수를 정의합니다.
+    """
+    주어진 데이터에서 특정 키포인트의 좌표를 지정한 통계 방식(최빈값, 구역 기반 최빈값, 평균, 중앙값)으로 전체 프레임에 걸쳐 고정합니다.
+    """
+    filtered_np = data_np.copy() # 원본 데이터가 훼손되지 않도록 깊은 복사(copy)를 수행하여 새로운 배열을 만듭니다.
+
+    if isinstance(target_kpts, int):    # 사용자가 타겟 키포인트를 리스트가 아닌 단일 숫자(int)로 입력했는지 확인합니다.
+        target_kpts = [target_kpts]     # 단일 숫자라도 반복문(for)에서 에러가 나지 않도록 리스트 형태로 감싸줍니다.
+
+    for k in target_kpts: # 고정하고자 하는 모든 타겟 키포인트에 대해 순차적으로 반복 작업을 수행합니다.
+        valid_idx = data_np[:, k, 2] > min_score # 신뢰도(score)가 기준치보다 높은, 즉 의미 있는 데이터가 있는 프레임의 위치(인덱스)를 찾습니다.
+        
+        if not np.any(valid_idx): # 만약 유효한 데이터가 단 한 프레임도 존재하지 않는지 검사합니다.
+            continue # 유효한 데이터가 없다면 통계를 낼 수 없으므로, 아무 작업 없이 다음 키포인트로 건너뜁니다.
+
+        valid_data = data_np[valid_idx, k, :2] # 0이나 결측치로 인해 대푯값이 왜곡되는 것을 막기 위해, 유효한 프레임의 x와 y 좌표만 따로 추출합니다.
+        target_val = np.zeros(2) # 계산된 최종 대푯값(x, y)을 임시로 저장해 둘 배열을 0으로 초기화하여 준비합니다.
+  
+        if method == 'mean': # 사용자가 선택한 통계 방식이 '평균값(mean)'인지 확인합니다.
+            target_val = np.mean(valid_data, axis=0) # 유효한 x, y 좌표들의 산술 평균을 일괄적으로 계산합니다.
+            
+        elif method == 'median': # 사용자가 선택한 통계 방식이 '중앙값(median)'인지 확인합니다.
+            target_val = np.median(valid_data, axis=0) # 유효한 x, y 좌표들을 크기순으로 나열했을 때 정중앙에 있는 값을 계산합니다.
+            
+        elif method == 'binned_mode': # 사용자가 새롭게 추가한 '구역 기반 최빈값(binned_mode)'인지 확인합니다.
+            for ax in range(2): # x축(0)과 y축(1)은 데이터 분포(흔들림 정도)가 다르므로 각각 독립적으로 반복 계산합니다.
+                axis_data = valid_data[:, ax] # 현재 계산 중인 축의 1차원 데이터만 쏙 뽑아냅니다.
+                min_v, max_v = np.min(axis_data), np.max(axis_data) # 데이터를 나눌 전체 구간을 알기 위해 최솟값과 최댓값을 확인합니다.
+                
+                if min_v == max_v: # 모든 값이 완벽하게 동일하여 구역을 나눌 필요가 없는 특수한 상황인지 확인합니다.
+                    target_val[ax] = min_v # 나눌 필요가 없다면 그 값 자체를 해당 축의 대푯값으로 즉시 확정합니다.
+                else: # 데이터에 변동성이 있어 구역을 나누어야 하는 일반적인 경우입니다.
+                    bins = np.arange(min_v, max_v + bin_size, bin_size) # 지정된 bin_size(예: 10) 간격으로 구역(Bin)의 경계선들을 촘촘히 생성합니다.
+                    hist, bin_edges = np.histogram(axis_data, bins=bins) # 각 구역 안에 데이터가 몇 개씩 들어가는지 히스토그램 방식으로 셉니다.
+                    
+                    max_bin_idx = np.argmax(hist) # 데이터가 가장 빽빽하게 몰려 있는 1등(최빈) 구역이 몇 번째인지 인덱스를 찾아냅니다.
+                    
+                    # 1등 구역 안에 쏙 들어가는 데이터들만 걸러내기 위한 True/False 마스크(조건)를 만듭니다.
+                    in_bin_mask = (axis_data >= bin_edges[max_bin_idx]) & (axis_data < bin_edges[max_bin_idx + 1]) 
+                    
+                    target_val[ax] = np.median(axis_data[in_bin_mask]) # 1등 구역 안에 모인 진짜 데이터들끼리만 중앙값을 구해 이 축의 최종 대푯값으로 삼습니다.
+                    
+        else: # 사용자가 지원하지 않는 오타나 잘못된 방식을 입력했는지 방어적으로 확인합니다.
+            raise ValueError("method는 'mean', 'median', 'binned_mode' 중 하나여야 합니다.") # 에러를 발생시켜 코드가 잘못된 값으로 도는 것을 미연에 방지합니다.
+
+        # --- [축 선택 적용 로직] ---
+        if axis in ['x', 'both']: # 사용자가 x축을 고정하고 싶어 하거나(x), 두 축 모두 고정하고 싶어 하는지(both) 확인합니다.
+            filtered_np[:, k, 0] = target_val[0] # 전체 프레임(모든 시간대)에 대해 해당 키포인트의 x 좌표를 위에서 구한 대푯값으로 일괄 덮어씌웁니다.
+            
+        if axis in ['y', 'both']: # 사용자가 y축을 고정하고 싶어 하거나(y), 두 축 모두 고정하고 싶어 하는지(both) 확인합니다.
+            filtered_np[:, k, 1] = target_val[1] # 전체 프레임(모든 시간대)에 대해 해당 키포인트의 y 좌표를 위에서 구한 대푯값으로 일괄 덮어씌웁니다.
+
+    return filtered_np # 지정된 키포인트의 좌표가 모든 조건에 맞게 성공적으로 고정된 최종 데이터 배열을 반환합니다.
