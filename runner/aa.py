@@ -16,7 +16,6 @@ from utils.parser import parse_common_path
 DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
 METADATA_PATH = DATA_DIR / "metadata_v2.1.csv"
 BOSANJIN_PATH = DATA_DIR / "bosanjin_seg_data.csv"
-
 # =================================================================
 # 2. 데이터 로드 및 전처리
 # =================================================================
@@ -24,91 +23,28 @@ print(f"📂 CSV 로드 중... ({METADATA_PATH.name}, {BOSANJIN_PATH.name})")
 meta_df = pd.read_csv(METADATA_PATH)
 bosan_df = pd.read_csv(BOSANJIN_PATH)
 
+# =================================================================
+# 3. 데이터 정제 및 필터링 (is_train or is_val == True)
+# =================================================================
 
-for target in range(511,526):
+# --- 3.1 Metadata 데이터프레임 정제 ---
+# is_train 컬럼을 문자열로 바꾼 뒤, 공백을 제거하고 소문자로 만들어 'true'인지 확인합니다. (불리언 변환)
+meta_df['is_train'] = meta_df['is_train'].astype(str).str.strip().str.lower() == 'true' # Train 값을 True/False로 확정합니다.
+meta_df['is_val'] = meta_df['is_val'].astype(str).str.strip().str.lower() == 'true'     # Val 값을 True/False로 확정합니다.
 
-    common_path = bosan_df.iloc[target]['common_path']
-    start_frame = bosan_df.iloc[target]['start_frame']
-    end_frame = bosan_df.iloc[target]['end_frame']
-
-    paths = path_list(common_path)
-    patient_id = int(meta_df.loc[meta_df['common_path'] == common_path, 'patient_id'].iloc[0]) # 조건에 맞는 첫 번째 ID 값을 안전하게 꺼내어 정수형(int)으로 변환합니다.
-
-    mp4_output_path = paths['interp_mp4']/f"{bosan_df.iloc[target]['raw_label']}.mp4"
-    mp4_test_path = paths['test']/f"seg_filtered/{bosan_df.iloc[target]['raw_label']}.mp4"
+# Train 혹은 Val 중 하나라도 True인 행만 선택하여 새로운 데이터프레임에 복사합니다.
+df_meta_valid = meta_df[(meta_df['is_train'] == True) | (meta_df['is_val'] == True)].copy() # 유효한 메타데이터만 복사합니다.
 
 
-    print(common_path)
-    print("\n",bosan_df.iloc[target]['raw_label'],"\n")
+# --- 3.2 Bosanjin Seg 데이터프레임 정제 ---
+# 동일한 방식으로 Bosanjin 데이터의 공백 및 문자열 문제를 해결합니다.
+bosan_df['is_train'] = bosan_df['is_train'].astype(str).str.strip().str.lower() == 'true' # Train 값을 True/False로 확정합니다.
+bosan_df['is_val'] = bosan_df['is_val'].astype(str).str.strip().str.lower() == 'true'     # Val 값을 True/False로 확정합니다.
 
-    kpt = extract_id_keypoints(
-        json_dir=paths['keypoint'],
-        target_id=patient_id,
-        start_frame=start_frame,
-        end_frame=end_frame
-    )
+# Train 혹은 Val 중 하나라도 True인 행만 선택하여 새로운 데이터프레임에 복사합니다.
+df_bosan_valid = bosan_df[(bosan_df['is_train'] == True) | (bosan_df['is_val'] == True)].copy() # 유효한 보산진 데이터만 복사합니다.
 
-    from utils.postprocessing import apply_axis_selective_kalman, apply_axis_velocity_kalman, apply_axis_selective_iqr_filter, apply_kalman_smoothing
 
-   # 데이터 유효성 검사 (수정된 부분)
-    if kpt is not None and hasattr(kpt, 'shape') and len(kpt.shape) == 3:
-        # 1. Selective Kalman Filter
-        filtered_kpt = apply_axis_selective_kalman(
-            data_np=kpt,
-            threshold=50,
-            q_std=0.5,
-            r_std=0.3,
-            target_kpts=[0,1,2,3,4,5,6,7,8,9,10,11],
-            axis='both'
-        )
-        
-        # 2. Kalman Smoothing
-        filtered_kpt = apply_kalman_smoothing(
-            data_np=filtered_kpt,
-            q_std=0.5,
-            r_std=0.3,
-            target_kpts=[0,1,2,3,4,5,6,7,8,9,10,11],
-            axis='both'
-        )
-    else:
-        # 변수명 수정: start -> start_frame, end -> end_frame
-        print(f"⚠️ [SKIP] ID:{patient_id} 구간({start_frame}~{end_frame}) 데이터가 유효하지 않음 (Shape: {getattr(kpt, 'shape', 'None')})")
-        continue
-
-    
-    from utils.kpt_analysis_plot import plot_and_save_12kpt_analysis
-
-    plot_and_save_12kpt_analysis(
-        data_array=kpt,
-        save_path=paths['test']/f"plot_filtered/{bosan_df.iloc[target]['raw_label']}_origin.png"
-    )
-
-    plot_and_save_12kpt_analysis(
-        data_array=filtered_kpt,
-        save_path=paths['test']/f"plot_filtered/{bosan_df.iloc[target]['raw_label']}_filtered.png"
-    )
-
-    generate_12kpt_skeleton_video_segment(
-        frame_dir=paths['frame'],
-        kpt_np=filtered_kpt,
-        output_path=mp4_test_path,
-        start_idx=start_frame,
-        end_idx=end_frame
-    )
-
-    # save_only_target_kpt_json(
-    #     src_dir=paths['keypoint'],
-    #     output_dir=paths['interp_data'],
-    #     kpt_array=filtered_kpt,
-    #     target_id=patient_id,
-    #     start_frame=start_frame
-    # )
-
-    # generate_17kpt_skeleton_video(
-    #     frame_dir=paths['frame'],
-    #     kpt_dir=paths['interp_data'],
-    #     output_path=mp4_output_path,
-    #     start_idx=start_frame,
-    #     end_idx=end_frame,
-    #     conf_threshold=0
-    # )
+# --- 3.3 정제 결과 확인 ---
+print(f"✅ 정제 완료: Metadata 유효 행 수 = {len(df_meta_valid)}") # 필터링된 메타데이터 개수를 출력합니다.
+print(f"✅ 정제 완료: Bosanjin 유효 행 수 = {len(df_bosan_valid)}") # 필터링된 보산진 데이터 개수를 출력합니다.

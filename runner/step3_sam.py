@@ -19,7 +19,7 @@ from utils.huggingface_login import login_to_huggingface
 
 # --- 2. 경로 설정 (전역 변수) ---
 DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
-METADATA_PATH = DATA_DIR / "metadata_v2.0.csv"  # 요청하신 v2.0 버전 사용
+METADATA_PATH = DATA_DIR / "metadata_v2.1.csv"  # 요청하신 v2.0 버전 사용
 CHECKPOINT_PATH = DATA_DIR / "checkpoints/SAM3/sam3.pt"
 BPE_PATH = DATA_DIR / "checkpoints/SAM3/bpe_simple_vocab_16e6.txt.gz"
 ENV_PATH = BASE_DIR / ".env"

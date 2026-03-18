@@ -16,7 +16,7 @@ from utils.generate_skeleton_video_v1 import generate_sam_video, generate_17kpt_
 
 
 DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
-METADATA_PATH = DATA_DIR / "metadata_v2.0.csv"
+METADATA_PATH = DATA_DIR / "metadata_v2.1.csv"
 
 # =================================================================
 # 2. 데이터 로드 및 전처리

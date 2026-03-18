@@ -4,8 +4,8 @@
 #SBATCH -o /home/tojihoo/logs/%A.out
 #SBATCH --mail-type END,TIME_LIMIT_90,REQUEUE,INVALID_DEPEND
 #SBATCH --mail-user jihu6033@gmail.com
-#SBATCH -p RTX3090
-#SBATCH --gpus 1
+#SBATCH -p TitanRTX
+#SBATCH --gpus 0
 
 # ------------------------------------------------------------
 # 환경 설정
@@ -15,10 +15,10 @@ export HTTPS_PROXY=http://192.168.45.108:3128
 export http_proxy=http://192.168.45.108:3128
 export https_proxy=http://192.168.45.108:3128
 
-DOCKER_IMAGE_NAME="tojihoo/sapiens:v1.1"
-DOCKER_CONTAINER_NAME="tojihoo_sapiens"
-DOCKERFILE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sapiens/Dockerfile"
-WORKSPACE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sapiens/"
+DOCKER_IMAGE_NAME="tojihoo/sam:v1.1"
+DOCKER_CONTAINER_NAME="tojihoo_sam"
+DOCKERFILE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sam3/Dockerfile"
+WORKSPACE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sam3/"
 RANDOM_PORT=$(( (RANDOM % 101) + 8000 ))  # 8000~8100 사이 포트
 
 # ------------------------------------------------------------
@@ -35,7 +35,7 @@ fi
 # Docker 컨테이너 실행
 # ------------------------------------------------------------
 echo "[INFO] Running container: ${DOCKER_CONTAINER_NAME}"
-docker run -it --rm --device=nvidia.com/gpu=all --shm-size 1TB \
+docker run -it --rm --shm-size 1TB \
     --name "${DOCKER_CONTAINER_NAME}" \
     -p ${RANDOM_PORT}:${RANDOM_PORT} \
     -v /mnt:/workspace \
