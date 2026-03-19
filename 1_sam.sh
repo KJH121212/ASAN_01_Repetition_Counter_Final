@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J tojihoo_sapiens
+#SBATCH -J tojihoo_generate_video4
 #SBATCH -t 7-00:00:00
 #SBATCH -o /home/tojihoo/logs/%A.out
 #SBATCH --mail-type END,TIME_LIMIT_90,REQUEUE,INVALID_DEPEND
@@ -16,7 +16,7 @@ export http_proxy=http://192.168.45.108:3128
 export https_proxy=http://192.168.45.108:3128
 
 DOCKER_IMAGE_NAME="tojihoo/sam:v1.1"
-DOCKER_CONTAINER_NAME="tojihoo_sam"
+DOCKER_CONTAINER_NAME="tojihoo_generate_video4"
 DOCKERFILE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sam3/Dockerfile"
 WORKSPACE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sam3/"
 RANDOM_PORT=$(( (RANDOM % 101) + 8000 ))  # 8000~8100 사이 포트
@@ -46,6 +46,6 @@ docker run -it --rm --shm-size 1TB \
     ${DOCKER_IMAGE_NAME} \
     bash -c "
         cd /workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASAN_01_Repetition_Counter_Final/runner && \
-        python3 aa.py
+        python3 generate_video.py
     "
-echo "[✅ DONE] aa.py finished."
+echo "[✅ DONE] generate_video.py finished."

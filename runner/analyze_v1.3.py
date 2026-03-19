@@ -1,3 +1,5 @@
+# metadata 와 bosanjis_seg_data 내부 파일 개수 비교 코드
+
 import sys
 import pandas as pd
 from pathlib import Path

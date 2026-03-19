@@ -1,8 +1,11 @@
 .
-├── ./0_bbox_by_sam3.sh
+├── ./0_sapiens.sh
+├── ./1_sam.sh
 ├── ./configs
 │   ├── ./configs/detector
 │   │   └── ./configs/detector/rtmdet_m_640-8xb32_coco-person_no_nms.py
+│   ├── ./configs/exercises
+│   │   └── ./configs/exercises/biceps_curl.yaml
 │   └── ./configs/sapiens
 │       ├── ./configs/sapiens/_base_
 │       │   ├── ./configs/sapiens/_base_/datasets
@@ -16,12 +19,7 @@
 │       ├── ./configs/sapiens/sapiens_0.6b-210e_coco-1024x768.py
 │       └── ./configs/sapiens/sapiens_0.6b-210e_coco_wholebody-1024x768.py
 ├── ./counter
-│   ├── ./counter/analyze_action.py
-│   ├── ./counter/base.py
-│   ├── ./counter/biceps_curl_analysis_plots
-│   ├── ./counter/config.py
-│   └── ./counter/exercises
-│       └── ./counter/exercises/biceps_curl.yaml
+│   └── ./counter/analyze_action.py
 ├── ./docker
 │   ├── ./docker/Dockerfile.sam
 │   ├── ./docker/Dockerfile.sapiens
@@ -35,35 +33,51 @@
 │   ├── ./ground_truth_pipeline/step2_extract_poses.py
 │   ├── ./ground_truth_pipeline/step2_refine_poses.py
 │   ├── ./ground_truth_pipeline/step3_sapiens_with_sam.py
-│   ├── ./ground_truth_pipeline/step3_sapiens_with_sam_v2.py
 │   ├── ./ground_truth_pipeline/step3_track_objects.py
 │   └── ./ground_truth_pipeline/step4_assign_ids.py
+├── ./README.md
 ├── ./runner
-│   ├── ./runner/a.py
+│   ├── ./runner/0base.py
+│   ├── ./runner/1_Sam_sapiens_filter.py
 │   ├── ./runner/aa.py
-│   ├── ./runner/analyze_v1.0.py
-│   ├── ./runner/assign_id_fix.py
-│   ├── ./runner/b.py
-│   ├── ./runner/generate_video.py
+│   ├── ./runner/analyze_v1.2.py
+│   ├── ./runner/analyze_v1.3.py
+│   ├── ./runner/bb.py
+│   ├── ./runner/counting_v1.py
+│   ├── ./runner/@eaDir
+│   │   └── ./runner/@eaDir/Thumbs.db@SynoEAStream
+│   ├── ./runner/img
+│   │   ├── ./runner/img/@eaDir
+│   │   │   └── ./runner/img/@eaDir/Thumbs.db@SynoEAStream
+│   │   ├── ./runner/img/filtered.png
+│   │   ├── ./runner/img/origin.png
+│   │   ├── ./runner/img/Thumbs.db
+│   │   └── ./runner/img/video.mp4
 │   ├── ./runner/meta_fix.py
+│   ├── ./runner/online_yolo_counting_v1.0.py
 │   ├── ./runner/step1.py
 │   ├── ./runner/step2_sapiens.py
 │   ├── ./runner/step3.5_sapiens_with_sam.py
 │   ├── ./runner/step3_sam.py
-│   └── ./runner/step4_assign_ids.py
+│   ├── ./runner/step4_assign_ids.py
+│   ├── ./runner/Thumbs.db
+│   └── ./runner/yolo_json_to_txt.py
 ├── ./tree.txt
-└── ./utils
-    ├── ./utils/@eaDir
-    │   └── ./utils/@eaDir/a.ipynb@SynoEAStream
-    ├── ./utils/__init__.py
-    ├── ./utils/a.ipynb
-    ├── ./utils/boundary_box.py
-    ├── ./utils/extract_kpt.py
-    ├── ./utils/generate_skeleton_video.py
-    ├── ./utils/generate_skeleton_video_v1.py
-    ├── ./utils/huggingface_login.py
-    ├── ./utils/kpt_analysis_plot.py
-    ├── ./utils/path_list.py
-    └── ./utils/post_filtering.py
+├── ./utils
+│   ├── ./utils/boundary_box.py
+│   ├── ./utils/config_loader.py
+│   ├── ./utils/counter_core.py
+│   ├── ./utils/extract_kpt.py
+│   ├── ./utils/filter_id.py
+│   ├── ./utils/generate_skeleton_video.py
+│   ├── ./utils/generate_skeleton_video_v1.py
+│   ├── ./utils/huggingface_login.py
+│   ├── ./utils/__init__.py
+│   ├── ./utils/kpt_analysis_plot.py
+│   ├── ./utils/parser.py
+│   ├── ./utils/path_list.py
+│   └── ./utils/postprocessing.py
+└── ./yolo
+    └── ./yolo/step1_dataset_builder.py
 
-14 directories, 52 files
+16 directories, 64 files
