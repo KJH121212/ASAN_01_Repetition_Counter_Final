@@ -473,53 +473,55 @@ def apply_kalman_smoothing(data_np, q_std=0.01, r_std=0.1, target_kpts=None, axi
 # ==========================================
 # 함수 5: 최빈값, 중앙값 등의 방식으로 kpt 고정하는 함수
 # ==========================================
-import numpy as np # 수치 배열 연산과 히스토그램 계산을 위해 numpy 라이브러리를 불러옵니다.
-from scipy import stats # 단순 최빈값(mode)을 계산하기 위해 scipy의 stats 모듈을 불러옵니다.
-
-def fix_keypoints_to_stat(data_np, target_kpts, axis='both', method='binned_mode', bin_size=10.0, min_score=0.05): # 구역 옵션이 추가된 대푯값 고정 함수를 정의합니다.
+def fix_keypoints_to_stat(data_np, target_kpts, axis='both', method='binned_mode', bin_size=10.0, min_score=0.05, frame_idx=None): # 특정 프레임 지정 및 다양한 통계 방식을 지원하는 키포인트 고정 함수를 정의합니다.
     """
-    주어진 데이터에서 특정 키포인트의 좌표를 지정한 통계 방식(최빈값, 구역 기반 최빈값, 평균, 중앙값)으로 전체 프레임에 걸쳐 고정합니다.
+    주어진 데이터에서 특정 키포인트의 좌표를 지정한 통계 방식 또는 특정 프레임의 좌표값으로 전체 프레임에 걸쳐 고정합니다.
     """
-    filtered_np = data_np.copy() # 원본 데이터가 훼손되지 않도록 깊은 복사(copy)를 수행하여 새로운 배열을 만듭니다.
+    filtered_np = data_np.copy() # 원본 배열이 변형되지 않도록 깊은 복사(copy)를 생성하여 안전하게 작업합니다.
 
-    if isinstance(target_kpts, int):    # 사용자가 타겟 키포인트를 리스트가 아닌 단일 숫자(int)로 입력했는지 확인합니다.
-        target_kpts = [target_kpts]     # 단일 숫자라도 반복문(for)에서 에러가 나지 않도록 리스트 형태로 감싸줍니다.
+    if isinstance(target_kpts, int): # 사용자가 타겟 키포인트를 단일 숫자(int)로 입력했는지 유연하게 검사합니다.
+        target_kpts = [target_kpts]  # 단일 숫자라도 반복문(for)에서 에러가 나지 않도록 리스트 형태로 감싸줍니다.
 
     for k in target_kpts: # 고정하고자 하는 모든 타겟 키포인트에 대해 순차적으로 반복 작업을 수행합니다.
-        valid_idx = data_np[:, k, 2] > min_score # 신뢰도(score)가 기준치보다 높은, 즉 의미 있는 데이터가 있는 프레임의 위치(인덱스)를 찾습니다.
-        
-        if not np.any(valid_idx): # 만약 유효한 데이터가 단 한 프레임도 존재하지 않는지 검사합니다.
-            continue # 유효한 데이터가 없다면 통계를 낼 수 없으므로, 아무 작업 없이 다음 키포인트로 건너뜁니다.
-
-        valid_data = data_np[valid_idx, k, :2] # 0이나 결측치로 인해 대푯값이 왜곡되는 것을 막기 위해, 유효한 프레임의 x와 y 좌표만 따로 추출합니다.
         target_val = np.zeros(2) # 계산된 최종 대푯값(x, y)을 임시로 저장해 둘 배열을 0으로 초기화하여 준비합니다.
-  
-        if method == 'mean': # 사용자가 선택한 통계 방식이 '평균값(mean)'인지 확인합니다.
-            target_val = np.mean(valid_data, axis=0) # 유효한 x, y 좌표들의 산술 평균을 일괄적으로 계산합니다.
+
+        if method == 'specific_frame': # 사용자가 선택한 방식이 '특정 프레임 고정(specific_frame)'인지 확인합니다.
+            if frame_idx is None or frame_idx < 0 or frame_idx >= data_np.shape[0]: # 프레임 인덱스가 유효한 범위를 벗어나는지 방어적으로 검사합니다.
+                raise ValueError("올바른 frame_idx를 입력해야 합니다.") # 잘못된 인덱스일 경우 에러를 발생시켜 잘못된 참조를 미연에 방지합니다.
             
-        elif method == 'median': # 사용자가 선택한 통계 방식이 '중앙값(median)'인지 확인합니다.
-            target_val = np.median(valid_data, axis=0) # 유효한 x, y 좌표들을 크기순으로 나열했을 때 정중앙에 있는 값을 계산합니다.
+            target_val = data_np[frame_idx, k, :2] # 전체 데이터를 순회할 필요 없이, 지정한 단일 프레임의 특정 키포인트 x, y 좌표를 즉시 대푯값으로 가져옵니다.
+
+        else: # 특정 프레임 지정 방식이 아닌, 기존의 전체 프레임 기반 통계 방식들을 처리하는 구간입니다.
+            valid_idx = data_np[:, k, 2] > min_score # 신뢰도(score)가 기준치보다 높은, 즉 의미 있는 데이터가 있는 프레임의 위치(인덱스)를 찾습니다.
             
-        elif method == 'binned_mode': # 사용자가 새롭게 추가한 '구역 기반 최빈값(binned_mode)'인지 확인합니다.
-            for ax in range(2): # x축(0)과 y축(1)은 데이터 분포(흔들림 정도)가 다르므로 각각 독립적으로 반복 계산합니다.
-                axis_data = valid_data[:, ax] # 현재 계산 중인 축의 1차원 데이터만 쏙 뽑아냅니다.
-                min_v, max_v = np.min(axis_data), np.max(axis_data) # 데이터를 나눌 전체 구간을 알기 위해 최솟값과 최댓값을 확인합니다.
+            if not np.any(valid_idx): # 만약 유효한 데이터가 단 한 프레임도 존재하지 않는지 검사합니다.
+                continue # 유효한 데이터가 없다면 통계를 낼 수 없으므로, 아무 작업 없이 다음 키포인트로 건너뜁니다.
+
+            valid_data = data_np[valid_idx, k, :2] # 0이나 결측치로 인해 대푯값이 왜곡되는 것을 막기 위해, 유효한 프레임의 x와 y 좌표만 (N, 2) 형태로 따로 추출합니다.
+
+            if method == 'mean': # 사용자가 선택한 통계 방식이 '평균값(mean)'인지 확인합니다.
+                target_val = np.mean(valid_data, axis=0) # 유효한 x, y 좌표들의 산술 평균을 일괄적으로 계산하여 대푯값으로 삼습니다.
                 
-                if min_v == max_v: # 모든 값이 완벽하게 동일하여 구역을 나눌 필요가 없는 특수한 상황인지 확인합니다.
-                    target_val[ax] = min_v # 나눌 필요가 없다면 그 값 자체를 해당 축의 대푯값으로 즉시 확정합니다.
-                else: # 데이터에 변동성이 있어 구역을 나누어야 하는 일반적인 경우입니다.
-                    bins = np.arange(min_v, max_v + bin_size, bin_size) # 지정된 bin_size(예: 10) 간격으로 구역(Bin)의 경계선들을 촘촘히 생성합니다.
-                    hist, bin_edges = np.histogram(axis_data, bins=bins) # 각 구역 안에 데이터가 몇 개씩 들어가는지 히스토그램 방식으로 셉니다.
-                    
-                    max_bin_idx = np.argmax(hist) # 데이터가 가장 빽빽하게 몰려 있는 1등(최빈) 구역이 몇 번째인지 인덱스를 찾아냅니다.
-                    
-                    # 1등 구역 안에 쏙 들어가는 데이터들만 걸러내기 위한 True/False 마스크(조건)를 만듭니다.
-                    in_bin_mask = (axis_data >= bin_edges[max_bin_idx]) & (axis_data < bin_edges[max_bin_idx + 1]) 
-                    
-                    target_val[ax] = np.median(axis_data[in_bin_mask]) # 1등 구역 안에 모인 진짜 데이터들끼리만 중앙값을 구해 이 축의 최종 대푯값으로 삼습니다.
-                    
-        else: # 사용자가 지원하지 않는 오타나 잘못된 방식을 입력했는지 방어적으로 확인합니다.
-            raise ValueError("method는 'mean', 'median', 'binned_mode' 중 하나여야 합니다.") # 에러를 발생시켜 코드가 잘못된 값으로 도는 것을 미연에 방지합니다.
+            elif method == 'median': # 사용자가 선택한 통계 방식이 '중앙값(median)'인지 확인합니다.
+                target_val = np.median(valid_data, axis=0) # 유효한 x, y 좌표들을 크기순으로 나열했을 때 정중앙에 있는 값을 계산합니다.
+                
+            elif method == 'binned_mode': # 새롭게 개선된 '2D 묶음 기반 최빈 좌표' 추출 방식입니다.
+                quantized_data = np.floor(valid_data / bin_size).astype(int) # x, y 좌표를 bin_size로 나누고 내림하여 2D 격자(Grid) 인덱스 정수로 변환합니다.
+                
+                unique_bins, counts = np.unique(quantized_data, axis=0, return_counts=True) # 격자화된 2D 배열에서 중복을 제거하고 각 격자의 빈도수를 셉니다.
+                
+                max_count_idx = np.argmax(counts) # 빈도수(counts) 배열에서 가장 높은 숫자가 있는 위치(인덱스)를 찾아냅니다.
+                
+                best_bin = unique_bins[max_count_idx] # 가장 많이 등장한 1등 격자의 [x, y] 인덱스 값을 가져옵니다.
+                
+                in_best_bin_mask = np.all(quantized_data == best_bin, axis=1) # 전체 quantized_data 중 1등 격자와 [x, y]가 정확히 일치하는 행들만 True로 마스킹합니다.
+                
+                best_real_data = valid_data[in_best_bin_mask] # 마스크를 이용해 1등 격자에 속했던 '원본 실수 좌표'들만 걸러냅니다.
+                
+                target_val = np.median(best_real_data, axis=0) # 걸러낸 진짜 좌표들의 중앙값을 구해 미세한 노이즈를 한 번 더 제거한 최종 단일 좌표를 확정합니다.
+
+            else: # 사용자가 지원하지 않는 오타나 잘못된 방식을 입력했는지 방어적으로 확인합니다.
+                raise ValueError("method는 'mean', 'median', 'binned_mode', 'specific_frame' 중 하나여야 합니다.") # 에러를 발생시켜 프로그램 중단을 알립니다.
 
         # --- [축 선택 적용 로직] ---
         if axis in ['x', 'both']: # 사용자가 x축을 고정하고 싶어 하거나(x), 두 축 모두 고정하고 싶어 하는지(both) 확인합니다.

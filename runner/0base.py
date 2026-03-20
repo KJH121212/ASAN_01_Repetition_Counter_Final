@@ -9,13 +9,10 @@ BASE_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASA
 sys.path.append(str(BASE_DIR))
 
 from utils.path_list import path_list
-from utils.generate_skeleton_video_v1 import generate_17kpt_skeleton_video, generate_12kpt_skeleton_video_from_np
-from utils.extract_kpt import normalize_skeleton_array, extract_id_keypoints, save_12kpt_to_17kpt_json
-from utils.parser import parse_common_path
 
 DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
 METADATA_PATH = DATA_DIR / "metadata_v2.1.csv"
-BOSANJIN_PATH = DATA_DIR / "bosanjin_seg_data.csv"
+BOSANJIN_PATH = DATA_DIR / "bosanjin_seg_data_v2.1.csv"
 
 # =================================================================
 # 2. 데이터 로드 및 전처리
@@ -24,10 +21,26 @@ print(f"📂 CSV 로드 중... ({METADATA_PATH.name}, {BOSANJIN_PATH.name})")
 meta_df = pd.read_csv(METADATA_PATH)
 bosan_df = pd.read_csv(BOSANJIN_PATH)
 
-target = 15
-common_path = bosan_df.iloc[target]['common_path']
-start_frame = bosan_df.iloc[target]['start_frame']
-end_frame = bosan_df.iloc[target]['end_frame']
+target = 83
+
+# metadata  사용시
+common_path = meta_df.iloc[target]['common_path']
+start_frame = 0
+end_frame = None
+
+# bosanjin_data 활용시
+# common_path = bosan_df.iloc[target]['common_path']
+# start_frame = bosan_df.iloc[target]['start_frame']
+# end_frame = bosan_df.iloc[target]['end_frame']
 
 paths = path_list(common_path)
 patient_id = int(meta_df.loc[meta_df['common_path'] == common_path, 'patient_id'].iloc[0]) # 조건에 맞는 첫 번째 ID 값을 안전하게 꺼내어 정수형(int)으로 변환합니다.
+
+from utils.generate_skeleton_video_v2 import generate_integrated_video
+
+generate_integrated_video(
+    frame_dir=paths['frame'],
+    output_path=paths['mp4'],
+    skeleton_dir=paths['keypoint'],
+    sam_dir=paths['sam']
+)

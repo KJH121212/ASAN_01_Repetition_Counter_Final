@@ -19,7 +19,7 @@ from utils.filter_id import filter_skeleton_by_ids
 
 DATA_ROOT = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
 csv_path = DATA_ROOT / "metadata_v2.1.csv"
-bosan_path = DATA_ROOT / "bosanjin_seg_data.csv"
+bosan_path = DATA_ROOT / "bosanjin_seg_data_v2.1.csv"
 
 df = pd.read_csv(csv_path)
 bosan_df = pd.read_csv(bosan_path)

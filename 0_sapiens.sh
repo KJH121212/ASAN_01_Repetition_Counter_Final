@@ -17,8 +17,8 @@ export https_proxy=http://192.168.45.108:3128
 
 DOCKER_IMAGE_NAME="tojihoo/sapiens:v1.1"
 DOCKER_CONTAINER_NAME="tojihoo_sapiens2"
-DOCKERFILE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sapiens/Dockerfile"
-WORKSPACE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sapiens/"
+DOCKERFILE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sapiens_v1.1/Dockerfile"
+WORKSPACE_PATH="/mnt/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/jupyter/sapiens_v1.1/"
 RANDOM_PORT=$(( (RANDOM % 101) + 8000 ))  # 8000~8100 사이 포트
 
 # ------------------------------------------------------------
@@ -46,6 +46,6 @@ docker run -it --rm --device=nvidia.com/gpu=all --shm-size 1TB \
     ${DOCKER_IMAGE_NAME} \
     bash -c "
         cd /workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASAN_01_Repetition_Counter_Final/runner && \
-        python3 aa.py
+        python3 step3.5_sapiens_with_sam.py
     "
-echo "[✅ DONE] aa.py finished."
+echo "[✅ DONE] step3.5_sapiens_with_sam.py finished."

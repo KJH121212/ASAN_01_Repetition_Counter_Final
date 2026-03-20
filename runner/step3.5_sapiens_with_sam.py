@@ -23,8 +23,8 @@ except ImportError as e:
 if __name__ == "__main__":
     DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
     
-    df = pd.read_csv(DATA_DIR / "metadata.csv")
-    for target in range(47, 48):
+    df = pd.read_csv(DATA_DIR / "metadata_v2.0.csv")
+    for target in range(83, 84):
         COMMON_PATH = df['common_path'][target]
 
         FRAME_DIR = DATA_DIR / "1_FRAME" / COMMON_PATH
