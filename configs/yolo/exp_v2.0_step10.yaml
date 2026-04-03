@@ -1,0 +1,30 @@
+# configs/exp_v1.yaml
+
+# [1] 프로젝트 및 실험 이름
+project_name: "ASAN_YOLO_FINETUNING"
+run_name: "v2.0_step10"
+
+# [2] 경로 설정
+model:
+  base_path: "/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/checkpoints/YOLO/yolo11n-pose.pt"
+
+data:
+  config_path: "/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/6_YOLO_TRAINING_DATA/v2.0_step10/data.yaml"
+
+output:
+  base_dir: "/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/checkpoints/YOLO_FINETUNING"
+
+# [3] 학습 하이퍼파라미터
+train:
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  device: 0
+  patience: 15
+  save: true
+  exist_ok: true
+  pretrained: true 
+
+# [4] 로깅 설정
+logging:
+  use_wandb: true

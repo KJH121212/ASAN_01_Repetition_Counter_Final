@@ -36,9 +36,20 @@ def extract_id_keypoints(
 
     # 필터링된 파일들만 대상으로 진행바와 함께 순회합니다. 사용자에게 현재 어떤 구간을 처리 중인지 보여줍니다.
     for file in tqdm(target_files, desc=f"Extracting ID:{target_id} ({start_frame}~{end_frame})"): 
-        with open(file, 'r', encoding='utf-8') as f: # 한글 등의 문자가 깨지지 않도록 utf-8 인코딩으로 파일을 엽니다.
-            data = json.load(f) # JSON 파일의 내용을 파이썬 딕셔너리로 변환하여 메모리에 올립니다.
-        
+        if file.stat().st_size == 0:
+            print(f"\n❌ [빈 파일 발견] 프레임: {file.stem} 번 (경로: {file})")
+            raw_data.append(np.zeros((12, 3)))
+            continue
+
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                # 💡 [수정 2] JSON 파싱 시 발생할 수 있는 에러를 처리합니다.
+                data = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            print(f"\n⚠️ 깨진 파일 발견 및 건너뜀: {file.name}")
+            raw_data.append(np.zeros((12, 3)))
+            continue
+
         # ID가 아예 없거나 화면에서 사라진 프레임을 대비해 0으로 채워진 기본 배열을 만듭니다. (12개 관절, 3개 값)
         frame_data = np.zeros((12, 3)) 
         
@@ -60,6 +71,10 @@ def extract_id_keypoints(
         
         raw_data.append(frame_data) # 방금 추출한 [12, 3] 데이터를 전체 결과를 담는 리스트에 추가합니다.
 
+    # 데이터가 하나도 추출되지 않았을 경우를 위한 안전장치
+    if not raw_data:
+        return np.zeros((0, 12, 3))
+    
     return np.array(raw_data) # 리스트에 쌓인 모든 프레임 데이터를 (Frames, 12, 3) 형태의 3차원 넘파이 배열로 묶어 반환합니다.
 
 # ==========================================

@@ -15,7 +15,7 @@ ENV_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_PATH)
 WANDB_API_KEY = os.getenv("WANDB_API_KEY")
 
-CONFIG_PATH = BASE_DIR/"configs/yolo/exp_v2.0_step30.yaml"
+CONFIG_PATH = BASE_DIR/"configs/yolo/exp_v2.0_step1_m.yaml"
 with open(CONFIG_PATH, 'r') as f:
     cfg = yaml.safe_load(f)
 
@@ -81,8 +81,9 @@ def on_train_epoch_end(trainer):
 # ---------------------------------------------------------
 CHECKPOINT_DIR = os.path.join(cfg['output']['base_dir'], RUN_NAME, 'weights')
 LAST_PT_PATH = os.path.join(CHECKPOINT_DIR, 'last.pt')
-BASE_MODEL_PATH = cfg['model']['base_path']
+BASE_MODEL_PATH = str(cfg['model']['base_path'])
 
+print(BASE_MODEL_PATH)
 resume_status = False
 
 # 1. 이어하기 (last.pt) 체크
@@ -99,9 +100,9 @@ elif os.path.exists(BASE_MODEL_PATH):
 
 # 3. 파일 없음 (자동 다운로드 - Pose 버전 명시)
 else:
-    print(f"⚠️ [Download] 모델 파일을 찾을 수 없어 'yolo11n-pose.pt'를 다운로드합니다.")
+    print(f"⚠️ [Download] 모델 파일을 찾을 수 없어 'yolo11m-pose.pt'를 다운로드합니다.")
     # 사용자가 실수로 일반 모델을 적었더라도, 파일이 없으면 확실하게 pose 모델을 받도록 처리
-    model = YOLO("yolo11n-pose.pt") 
+    model = YOLO("yolo11m-pose.pt") 
     resume_status = False
 
 # ---------------------------------------------------------

@@ -18,8 +18,8 @@ if __name__ == "__main__": # 이 파이썬 파일이 직접 실행될 때만 아
     # 2. 경로 설정 및 데이터 로드
     # =================================================================
     DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data") # 원본 데이터와 라벨이 위치한 최상단 베이스 폴더입니다.
-    META_CSV_PATH = DATA_DIR / "metadata_v2.0.csv" # 전체 일반 영상에 대한 정보가 담긴 메타데이터 CSV 파일 경로입니다.
-    BOSAN_CSV_PATH = DATA_DIR / "bosanjin_seg_data_v2.0.csv" # 정교한 동작 구간(Segment) 정보가 포함된 Bosanjin CSV 파일 경로입니다.
+    META_CSV_PATH = DATA_DIR / "metadata_v2.1.csv" # 전체 일반 영상에 대한 정보가 담긴 메타데이터 CSV 파일 경로입니다.
+    BOSAN_CSV_PATH = DATA_DIR / "bosanjin_seg_data_v2.1.csv" # 정교한 동작 구간(Segment) 정보가 포함된 Bosanjin CSV 파일 경로입니다.
 
     print(f"📂 데이터 로드 중... ({META_CSV_PATH.name}, {BOSAN_CSV_PATH.name})") # 사용자에게 데이터 로딩 시작 상태를 안내합니다.
     meta_df = pd.read_csv(META_CSV_PATH) # 일반 메타데이터를 메모리에 데이터프레임 구조로 읽어옵니다.

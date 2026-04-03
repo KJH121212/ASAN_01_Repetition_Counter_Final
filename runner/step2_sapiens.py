@@ -65,7 +65,8 @@ def process_single_row(row_series, pose_estimator):
             det_ckpt = str(DATA_DIR / "checkpoints/sapiens/detector/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth"),
             pose_cfg = str(BASE_DIR / "configs/sapiens/sapiens_0.3b-210e_coco-1024x768.py"),
             pose_ckpt= str(DATA_DIR / "checkpoints/sapiens/pose/sapiens_0.3b_coco_best_coco_AP_796.pth"),
-            device="cuda:0"
+            device="cuda:0",
+            batch_size=16
         )
         row["sapiens_done"] = True
 

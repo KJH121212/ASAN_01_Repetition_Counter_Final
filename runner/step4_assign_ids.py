@@ -12,7 +12,7 @@ sys.path.append(str(BASE_DIR))
 
 from ground_truth_pipeline.step4_assign_ids import assign_sam_ids_to_keypoints
 from utils.path_list import path_list
-from utils.generate_skeleton_video_v1 import generate_sam_video, generate_17kpt_skeleton_video
+from utils.generate_skeleton_video_v2 import generate_integrated_video
 
 
 DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
@@ -62,10 +62,11 @@ for step, idx in enumerate(target_indices):
             output_dir=None      # None이면 원본 덮어쓰기
         )
         
-        generate_17kpt_skeleton_video(
-            frame_dir=paths['frame'],       # 원본 프레임 경로
-            kpt_dir=paths['keypoint'],               # 업데이트된 JSON이 저장된 test 경로 사용!
-            output_path=paths['mp4'],       # 출력 파일 경로
+        generate_integrated_video(
+            frame_dir=paths['frame'],       
+            output_path=paths['mp4'],
+            skeleton_dir=paths['keypoint'],
+            sam_dir=paths['sam'],
             conf_threshold=0
         )
 

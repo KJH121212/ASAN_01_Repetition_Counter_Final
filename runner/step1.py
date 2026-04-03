@@ -4,8 +4,8 @@ from pathlib import Path
 
 # 1. 경로 설정
 BASE_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASAN_01_Repetition_Counter_Final")
-DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
-CSV_PATH = DATA_DIR / "metadata_v2.1.csv"
+DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data_d03")
+CSV_PATH = DATA_DIR / "metadata_v1.0.csv"
 
 # 2. 모듈 불러오기 경로 추가
 sys.path.append(str(BASE_DIR))

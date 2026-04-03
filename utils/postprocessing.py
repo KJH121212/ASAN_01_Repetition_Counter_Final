@@ -531,3 +531,38 @@ def fix_keypoints_to_stat(data_np, target_kpts, axis='both', method='binned_mode
             filtered_np[:, k, 1] = target_val[1] # 전체 프레임(모든 시간대)에 대해 해당 키포인트의 y 좌표를 위에서 구한 대푯값으로 일괄 덮어씌웁니다.
 
     return filtered_np # 지정된 키포인트의 좌표가 모든 조건에 맞게 성공적으로 고정된 최종 데이터 배열을 반환합니다.
+
+def apply_segment_interpolation(
+    data_np: np.ndarray, 
+    start_frame: int, 
+    end_frame: int, 
+    target_kpts: Union[int, List[int]], 
+    axis: Literal['x', 'y', 'both'] = 'both'
+) -> np.ndarray:
+    """
+    지정된 프레임 구간(start_frame ~ end_frame)의 데이터를 삭제하고 선형 보간을 수행합니다.
+    """
+    filtered_np = data_np.copy() # 원본 데이터 보존을 위해 복사본을 생성합니다.
+    
+    # 입력받은 target_kpts가 단일 정수일 경우 리스트로 변환하여 반복문을 지원합니다.
+    if isinstance(target_kpts, int):
+        target_kpts = [target_kpts] # 단일 인덱스를 리스트화합니다.
+
+    for k in target_kpts: # 지정된 모든 관절에 대해 루프를 돕니다.
+        # 1. 보간할 구간을 NaN(Not a Number)으로 설정하여 비워둡니다.
+        # end_frame + 1을 통해 b 프레임까지 포함하도록 슬라이싱합니다.
+        if axis in ['x', 'both']:
+            filtered_np[start_frame : end_frame + 1, k, 0] = np.nan # X축 구간 삭제
+        if axis in ['y', 'both']:
+            filtered_np[start_frame : end_frame + 1, k, 1] = np.nan # Y축 구간 삭제
+
+        # 2. Pandas Series의 interpolate 기능을 활용해 빈 구간을 직선으로 채웁니다.
+        if axis in ['x', 'both']:
+            s_x = pd.Series(filtered_np[:, k, 0]) # X좌표를 시리즈로 변환합니다.
+            filtered_np[:, k, 0] = s_x.interpolate(method='linear', limit_direction='both').to_numpy() # 선형 보간 후 반영합니다.
+            
+        if axis in ['y', 'both']:
+            s_y = pd.Series(filtered_np[:, k, 1]) # Y좌표를 시리즈로 변환합니다.
+            filtered_np[:, k, 1] = s_y.interpolate(method='linear', limit_direction='both').to_numpy() # 선형 보간 후 반영합니다.
+
+    return filtered_np # 구간 보간이 완료된 배열을 반환합니다.

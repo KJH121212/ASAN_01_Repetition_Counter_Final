@@ -1,0 +1,30 @@
+# configs/yolo/exp_detection_v2.0.yaml
+
+# [1] 프로젝트 이름 변경 (WandB에서 구분하기 위함)
+project_name: "ASAN_YOLO_DETECTION"
+run_name: "v2.0_detection_step30_n"
+
+# [2] 경로 설정
+model:
+  # 💡 중요: -pose가 붙지 않은 일반 모델을 사용합니다.
+  base_path: "/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/checkpoints/YOLO/yolo11n.pt"
+
+data:
+  # 💡 중요: kpt_shape 설정이 없는 Detection용 data.yaml 경로를 넣으세요.
+  config_path: "/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/6_YOLO_TRAINING_DATA/v2.0_step30/det_data.yaml"
+
+output:
+  base_dir: "/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/checkpoints/YOLO_FINETUNING/"
+
+# [3] 학습 하이퍼파라미터 (아까 배운 대로 안정적으로 설정)
+train:
+  epochs: 100
+  imgsz: 640
+  batch: 32        # Medium 모델이므로 32나 16 권장
+  device: 0
+  patience: 15
+  save: true
+  exist_ok: true
+  pretrained: true 
+  amp: false       # 에러 방지를 위해 false 유지
+  workers: 4       # NAS 환경 병목 방지
