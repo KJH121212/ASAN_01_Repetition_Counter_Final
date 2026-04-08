@@ -1,10 +1,11 @@
-import sys
+
 import pandas as pd
 from pathlib import Path
 
 # =================================================================
 # 1. 설정 및 모듈 임포트
 # =================================================================
+import sys
 BASE_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASAN_01_Repetition_Counter_Final/")
 sys.path.append(str(BASE_DIR))
 
