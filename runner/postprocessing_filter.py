@@ -4,9 +4,9 @@ from pathlib import Path
 import numpy as np
 from typing import List, Union, Literal # Union과 필요한 타입들을 임포트합니다.
 
-target = 213
+target = 222
 update = False
-# update = True
+update = True
 
 # =================================================================
 # 1. 설정 및 모듈 임포트
@@ -59,16 +59,16 @@ from utils.postprocessing import apply_axis_selective_kalman,apply_axis_selectiv
 
 kpt_filtered=kpt_np
 
-# kpt_filtered = fix_keypoints_to_stat(
-#     kpt_filtered,
-#     target_kpts=[0,1,2,3,4,5,7,9,11],
-#     axis='both',
-#     # method='binned_mode',
-#     # bin_size=5,
-#     # min_score=0
-#     method='specific_frame',
-#     frame_idx=165
-# ) 
+kpt_filtered = fix_keypoints_to_stat(
+    kpt_filtered,
+    target_kpts=[2],
+    axis='both',
+    # method='binned_mode',
+    # bin_size=5,
+    # min_score=0
+    method='specific_frame',
+    frame_idx=0
+) 
 
 # kpt_filtered = fix_keypoints_to_stat(
 #     kpt_filtered,
@@ -101,7 +101,13 @@ kpt_filtered=kpt_np
 kpt_filtered = apply_axis_selective_kalman(
     data_np=kpt_filtered,
     target_kpts=[0,1,2,3,4,5,6,7,8,9,10,11],
-    threshold=100,
+    threshold=80,
+    axis='both'    
+)
+kpt_filtered = apply_axis_selective_kalman(
+    data_np=kpt_filtered,
+    target_kpts=[6],
+    threshold=40,
     axis='both'    
 )
 
@@ -119,7 +125,7 @@ kpt_filtered =  apply_kalman_smoothing(
 # =================================================================
 
 # 필요한 모든 시각화 및 저장 관련 함수들을 코드 블록 상단에서 한 번에 임포트합니다.
-from utils.kpt_analysis_plot import plot_and_save_12kpt_analysis # 시각화 함수를 임포트합니다.
+from utils.kpt_analysis_plot import plot_and_save_12kpt_optimized # 시각화 함수를 임포트합니다.
 from utils.generate_skeleton_video_v2 import generate_skeleton_video_np, generate_integrated_video # 테스트용 스켈레톤 비디오 생성 함수를 임포트합니다.
 from utils.extract_kpt import save_patient_only_12_to_17 # JSON 키포인트 저장 함수를 임포트합니다.
 
@@ -128,12 +134,12 @@ from utils.extract_kpt import save_patient_only_12_to_17 # JSON 키포인트 저
 if not update: # a가 False인 경우 (즉, 아직 테스트 및 시각화 확인 단계인 경우) 실행됩니다.
     print("📊 원본 및 필터링 데이터 시각화 저장 중...") # 사용자에게 시각화 진행 상태를 알립니다.
     
-    plot_and_save_12kpt_analysis(       # 원본 데이터를 이미지로 시각화하여 저장하는 함수를 호출합니다.
+    plot_and_save_12kpt_optimized(       # 원본 데이터를 이미지로 시각화하여 저장하는 함수를 호출합니다.
         data_array=kpt_np,              # 원본 키포인트 배열을 입력으로 전달합니다.
         save_path="./img/origin.png",   # 결과물을 저장할 경로를 지정합니다.
     )
     
-    plot_and_save_12kpt_analysis(       # 필터링된 데이터를 이미지로 시각화하여 저장하는 함수를 호출합니다.
+    plot_and_save_12kpt_optimized(      # 필터링된 데이터를 이미지로 시각화하여 저장하는 함수를 호출합니다.
         data_array=kpt_filtered,        # 필터링 처리가 끝난 배열을 입력으로 전달합니다.
         save_path="./img/filtered.png", # 결과물을 저장할 경로를 지정합니다.
     )

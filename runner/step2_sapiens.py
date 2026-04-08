@@ -19,8 +19,8 @@ from mmpose.apis import init_model as init_pose_estimator
 # 1️⃣ 기본 설정
 # ============================================================
 BASE_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASAN_01_Repetition_Counter_Final")
-DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
-CSV_PATH = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data/metadata_v2.1.csv")
+DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data_d03")
+CSV_PATH = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data_d03/metadata_v1.0.csv")
 
 sys.path.append(str(BASE_DIR))
 

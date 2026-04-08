@@ -11,12 +11,12 @@ BASE_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/ASA
 sys.path.append(str(BASE_DIR))
 
 from ground_truth_pipeline.step4_assign_ids import assign_sam_ids_to_keypoints
-from utils.path_list import path_list
+from utils.path_list_d03 import path_list_d03
 from utils.generate_skeleton_video_v2 import generate_integrated_video
 
 
-DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data")
-METADATA_PATH = DATA_DIR / "metadata_v2.1.csv"
+DATA_DIR = Path("/workspace/nas203/ds_RehabilitationMedicineData/IDs/tojihoo/data_d03")
+METADATA_PATH = DATA_DIR / "metadata_v1.0.csv"
 
 # =================================================================
 # 2. 데이터 로드 및 전처리
@@ -49,7 +49,7 @@ for step, idx in enumerate(target_indices):
     common_path = row['common_path']
     
     # 🟢 경로 생성
-    paths = path_list(str(common_path))
+    paths = path_list_d03(str(common_path))
     
     # 진행 상황 로그 출력 (flush=True로 즉시 출력 보장)
     print(f"[{step+1}/{total_targets}] Index {idx}: {common_path} ... ", end="", flush=True)
