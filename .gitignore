@@ -6,3 +6,7 @@ data/
 *.pth
 *.png
 *.pt
+__pycache__/
+*.log
+*.ckpt
+ground_truth_pipeline/test_workspace/
